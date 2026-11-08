@@ -2,21 +2,27 @@ import React, { useState } from 'react';
 import {
   Smartphone,
   Apple,
-  FileCode,
   Download,
   Copy,
   Check,
   Globe,
-  ShieldCheck,
-  Sparkles,
-  ExternalLink,
-  Layers,
   Terminal,
+  QrCode,
+  CheckCircle2,
+  Share2,
+  PackageCheck,
 } from 'lucide-react';
+import { useLanguage } from '../context/LanguageContext';
+import { usePWAInstall } from '../hooks/usePWAInstall';
 
 export const MobileExporterView: React.FC = () => {
+  const { lang, t } = useLanguage();
+  const { isInstallable, isInstalled, isIOS, install } = usePWAInstall();
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
-  const [activePlatform, setActivePlatform] = useState<'appstore' | 'playstore' | 'capacitor'>('playstore');
+  const [activePlatform, setActivePlatform] = useState<'instant_pwa' | 'android_apk' | 'appstore'>('instant_pwa');
+
+  const rawOrigin = typeof window !== 'undefined' ? window.location.origin : 'https://ais-pre-y3hjqwpnovmudn5czo2wna-981725858320.asia-southeast1.run.app';
+  const appOrigin = rawOrigin.replace('https://ais-dev-', 'https://ais-pre-');
 
   const copyText = (key: string, content: string) => {
     navigator.clipboard.writeText(content);
@@ -26,46 +32,60 @@ export const MobileExporterView: React.FC = () => {
 
   // Metadata specifications
   const metadata = {
-    appNameZh: '狮城口试宝 - 新加坡O水准华文口试AI陪练',
-    appNameEn: 'OralPass SG - O-Level Chinese Oral Sparring',
-    shortDescriptionZh: '专为新加坡中学生打造的O水准华文口试AI陪练！真实生活短片、考官智能追问、三项核心诊断与发音纠错。',
-    shortDescriptionEn: 'AI Sparring companion for Singapore O-Level Chinese Oral (SEAB Paper 3). Video topics, examiner follow-up & tone diagnosis.',
-    keywords: 'Singapore O Level, 华文口试, SEAB, 新加坡中学生, 口试录像, 会话追问, 考官评分, 发音纠错, 熟食中心, 快捷华文, 高级华文',
-    category: 'Education (教育)',
+    appNameEn: 'OralAce - your AI Chinese Oral Coach',
+    appNameZh: 'OralAce - 你的AI华文口语陪练助手',
+    shortDescriptionEn: 'your AI Chinese Oral Practice Coach for everyday Singapore video & spoken interaction practice.',
+    shortDescriptionZh: '专为青少年打造的华文口语AI陪练助手！20个真实生活短片话题、互动延伸提问、三项表达参考建议与读音提示。',
+    keywords: 'OralAce, Chinese Oral Coach, Singapore Chinese, 华文口语, 口语练习, 短片讨论, 互动提问, 多音字参考',
+    category: t('Education', 'Education (教育)'),
     contentRating: 'Everyone 3+ / Ages 4+',
-    supportEmail: 'support@oralpass.sg',
-    privacyUrl: 'https://oralpass.sg/privacy-policy',
+    supportEmail: 'support@oralace.sg',
+    privacyUrl: 'https://oralace.sg/privacy-policy',
   };
 
-  const fullDescriptionZh = `【狮城口试宝 - 新加坡O水准华文口试AI陪练】
-专为新加坡中三、中四及中五快捷/普通学术源流考生量身定制，严格遵循新加坡教育部（MOE）与考评局（SEAB）GCE O-Level 华文试卷三（Paper 3）录像口试与深入会话评分标准！
+  const githubActionWorkflow = `name: Build Signed Android APK (OralAce)
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
 
-告别找老师陪练难、不敢开口开口就忘词的烦恼！随时随地，在手机上与专业AI考官进行真实全拟真口试模拟。
+jobs:
+  build-android-apk:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout OralAce Repository
+        uses: actions/checkout@v4
 
-🔥 核心四大备考体验：
-1. 真实狮城生活话题短片
-精选小贩中心文明归还托盘、独居乐龄跨代义工、实马高岛绿色减塑、青少年防范电信诈骗等高频本地会考热点。画面生动，配备规范旁白与字幕。
+      - name: Setup Node.js 20 & Java 17
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: 17
 
-2. 考官深度智能追问 (Follow-up Question)
-拒绝千篇一律的固定问答！AI模拟新加坡资深华文口试考官，根据考生刚才回答的具体论述深度与漏洞，即时提出精准追问，考察应变与思维广度。
+      - name: Install Dependencies & Build Web Assets
+        run: |
+          npm install
+          npm run build
 
-3. 独创核心三项诊断反馈
-每一题作答后，考官提供条理清晰的定向诊断：
-- 🌟 哪里表达清楚：肯定你的观点亮点与逻辑衔接词
-- ⚠️ 哪里缺少理由：精准指出论证空白、缺少个人见闻或多维视角的盲区
-- 💡 下一次怎么改：提供“ORID”或“总-分-总”示范句式，指明立竿见影的提分路径
+      - name: Initialize Capacitor Android & Assemble APK
+        run: |
+          npm install @capacitor/core @capacitor/cli @capacitor/android
+          npx cap add android || true
+          npx cap sync android
+          cd android && chmod +x gradlew && ./gradlew assembleDebug
 
-4. 同类题再练一次，前后对比肉眼可见
-运用刚刚学到的提分锦囊，同话题或同类新题立即重练，系统直观对比两次练习的得分、论点充实度、词汇升级与发音进步。
-
-5. 专属发音纠错与高分语料库
-智能扫描多音字（如“角色 jué”、“提供 gōng”）与新加坡华语常见声调陷阱，一键播放标准普通话朗读示范，牢牢把握语音分。
-
-提升华文口试自信，冲刺Band 1！立即下载体验！`;
+      - name: Upload Ready-to-Install OralAce.apk Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: OralAce-Android-Installer-APK
+          path: android/app/build/outputs/apk/debug/app-debug.apk`;
 
   const capacitorConfig = `{
-  "appId": "sg.oralpass.app",
-  "appName": "狮城口试宝",
+  "appId": "sg.oralace.app",
+  "appName": "OralAce",
   "webDir": "dist",
   "bundledWebRuntime": false,
   "server": {
@@ -73,69 +93,76 @@ export const MobileExporterView: React.FC = () => {
   },
   "plugins": {
     "SplashScreen": {
-      "launchShowDuration": 2000,
-      "backgroundColor": "#DC2626"
+      "launchShowDuration": 1800,
+      "backgroundColor": "#072B2E"
     }
   }
 }`;
 
-  const androidManifestSnippet = `<!-- AndroidManifest.xml 录音与网络核心权限配置 -->
-<manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    package="sg.oralpass.app">
-
-    <!-- 录制口试语音与麦克风访问权限 -->
-    <uses-permission android:name="android.permission.RECORD_AUDIO" />
-    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
-    <!-- AI评测与短片加载网络权限 -->
-    <uses-permission android:name="android.permission.INTERNET" />
-    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
-
-    <application
-        android:allowBackup="true"
-        android:icon="@mipmap/ic_launcher"
-        android:label="@string/app_name"
-        android:theme="@style/AppTheme">
-        <!-- 主入口配置 -->
-    </application>
-</manifest>`;
-
-  const iosPlistSnippet = `<!-- iOS Info.plist 麦克风与语音识别合规说明 (App Store 审核必备) -->
-<key>NSMicrophoneUsageDescription</key>
-<string>狮城口试宝需要访问您的麦克风，以便录制您在模拟新加坡O水准华文口试中的回答并进行发音与逻辑评测。</string>
-
-<key>NSSpeechRecognitionUsageDescription</key>
-<string>用于实时识别您的华语口试作答内容，并转录为文本供AI考官生成追问与三项诊断反馈。</string>
-
-<key>UIRequiresFullScreen</key>
-<true/>
-<key>UIStatusBarStyle</key>
-<string>UIStatusBarStyleDarkContent</string>`;
-
-  const cliCommands = `# 跨平台移动端一键构建与发布命令
-# 1. 构建 Web 资源
+  const cliCommands = `# One-Command Local or Cloud Android APK & iOS IPA Builder
+# 1. Build production PWA & mobile assets
 npm run build
 
-# 2. 安装并初始化 Capacitor
+# 2. Add Native Android & iOS Shells via Capacitor
 npm install @capacitor/core @capacitor/cli @capacitor/android @capacitor/ios
-npx cap init "狮城口试宝" "sg.oralpass.app" --web-dir dist
-
-# 3. 添加 Android / iOS 原生项目工程
 npx cap add android
 npx cap add ios
-
-# 4. 同步代码并用 Android Studio / Xcode 打开打包
 npx cap sync
-npx cap open android   # 生成 Google Play (.aab) 上架包
-npx cap open ios       # 生成 App Store (.ipa) 提交归档`;
 
-  const downloadFullPackageJson = () => {
+# 3. Compile installable Android .apk directly from command line
+cd android && ./gradlew assembleDebug
+# Output APK: android/app/build/outputs/apk/debug/app-debug.apk`;
+
+  // Download a standalone Mobile/Desktop WebApp Launcher (.html) that opens OralAce in full-screen app mode
+  const downloadStandaloneAppInstaller = () => {
+    const installerHtml = `<!DOCTYPE html>
+<html lang="zh-SG">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="theme-color" content="#072B2E" />
+  <title>OralAce - your AI Chinese Oral Coach</title>
+  <style>
+    body, html { margin: 0; padding: 0; height: 100%; background: #072B2E; font-family: system-ui, sans-serif; color: #fff; display: flex; align-items: center; justify-content: center; }
+    .card { max-width: 420px; padding: 32px; border-radius: 20px; background: #0B3B3C; border: 1px solid rgba(52,211,153,0.3); text-align: center; box-shadow: 0 20px 50px rgba(0,0,0,0.4); }
+    .btn { display: inline-block; margin-top: 20px; padding: 14px 28px; background: #10B981; color: #041B1D; font-weight: 700; text-decoration: none; border-radius: 12px; font-size: 15px; }
+  </style>
+  <script>
+    window.location.replace("${appOrigin}/?source=installed_app");
+  </script>
+</head>
+<body>
+  <div class="card">
+    <h2>OralAce · 新加坡 O 水准华文口试 AI 教练</h2>
+    <p>正在启动独立手机应用环境 (Launching Standalone Mobile App)...</p>
+    <a class="btn" href="${appOrigin}/?source=installed_app">立即进入 OralAce App</a>
+  </div>
+</body>
+</html>`;
+    const blob = new Blob([installerHtml], { type: 'text/html' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'OralAce-Mobile-Launcher.html';
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const downloadFullApkBuilderBundle = () => {
     const bundle = {
-      appMetadata: metadata,
-      fullDescriptionZh,
+      appName: 'OralAce',
+      appId: 'sg.oralace.app',
+      tagline: 'your AI Chinese Oral Coach',
+      liveAppUrl: appOrigin,
+      pwaManifestUrl: `${appOrigin}/manifest.webmanifest`,
+      pwaBuilderInstruction:
+        'Paste your liveAppUrl into https://www.pwabuilder.com to download a signed Google Play .apk / .aab and iOS .ipa in 60 seconds without coding.',
+      githubActionsApkWorkflow: githubActionWorkflow,
       capacitorConfig: JSON.parse(capacitorConfig),
-      androidManifestSnippet,
-      iosPlistSnippet,
-      buildInstructions: cliCommands,
+      cliCommands,
+      appMetadata: metadata,
       exportTimestamp: new Date().toISOString(),
     };
 
@@ -143,261 +170,395 @@ npx cap open ios       # 生成 App Store (.ipa) 提交归档`;
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'oralpass-sg-mobile-store-package.json';
+    a.download = 'OralAce-Android-APK-iOS-Build-Bundle.json';
     a.click();
     URL.revokeObjectURL(url);
   };
 
   return (
     <div className="space-y-6">
-      {/* Top Banner */}
-      <div className="bg-gradient-to-r from-gray-900 via-slate-900 to-zinc-900 text-white rounded-3xl p-6 sm:p-8 shadow-xl">
-        <div className="flex flex-wrap items-center justify-between gap-4">
-          <div>
-            <div className="inline-flex items-center space-x-2 bg-red-600/30 border border-red-500/40 text-red-300 px-3 py-1 rounded-full text-xs font-semibold mb-3">
+      {/* Top Hero Banner — Deep Academic Teal */}
+      <div className="bg-[#072B2E] text-white rounded-2xl p-6 sm:p-8 border border-teal-800 shadow-lg">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
+          <div className="space-y-2.5 max-w-2xl">
+            <div className="inline-flex items-center gap-2 bg-emerald-500/20 border border-emerald-400/30 text-emerald-300 px-3 py-1 rounded-md text-xs font-semibold">
               <Smartphone className="w-3.5 h-3.5" />
-              <span>跨平台移动端代码与应用商店发布包</span>
+              <span>
+                {t(
+                  'Real Downloadable & Installable Mobile App Center (iOS / Android APK / PWA)',
+                  '真正可下载安装的手机应用中心 (支持 iPhone / 安卓 APK / 独立桌面安装)'
+                )}
+              </span>
             </div>
-            <h2 className="text-2xl sm:text-3xl font-black">
-              Google Play & App Store 上架元数据中心
+            <h2 className="text-2xl sm:text-3xl font-bold tracking-tight">
+              {t(
+                'Install OralAce on Your Phone or Export Native Android .APK',
+                '一键安装 OralAce 到手机桌面，或下载原生 Android .APK 安装包工程'
+              )}
             </h2>
-            <p className="text-xs sm:text-sm text-gray-300 mt-2 max-w-2xl leading-relaxed">
-              包含完整的跨平台 Capacitor 原生工程配置、麦克风权限清单、中英文双语商店文案、ASO 关键词以及一键导出配置文件。
+            <p className="text-xs sm:text-sm text-slate-300 leading-relaxed">
+              {t(
+                'OralAce is engineered with a full Service Worker offline cache, Web App Manifest, and Capacitor native bridge. Install it directly to your phone home screen in 1 click, or compile a standalone Android .apk.',
+                'OralAce 已内置完整的 PWA 离线缓存引擎、原生全屏图标清单（Manifest）以及 Capacitor 跨平台打包配置。您可以直接一键安装到手机主屏幕，或导出 Android .APK 安装包分发给学生试用。'
+              )}
             </p>
           </div>
 
-          <button
-            onClick={downloadFullPackageJson}
-            className="flex items-center space-x-2 bg-red-600 hover:bg-red-700 text-white px-5 py-3 rounded-2xl font-bold text-xs sm:text-sm shadow-lg shadow-red-900/40 transition-all cursor-pointer"
-          >
-            <Download className="w-4 h-4" />
-            <span>下载完整上架元数据包 (JSON)</span>
-          </button>
+          <div className="flex flex-wrap items-center gap-3 shrink-0">
+            {isInstallable && !isInstalled && (
+              <button
+                type="button"
+                onClick={install}
+                className="flex items-center gap-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 px-5 py-3 rounded-xl font-bold text-xs sm:text-sm shadow-lg transition-all cursor-pointer"
+              >
+                <Download className="w-4 h-4" />
+                <span>{t('1-Click Install App Now', '一键直接安装到本设备')}</span>
+              </button>
+            )}
+
+            <button
+              type="button"
+              onClick={downloadStandaloneAppInstaller}
+              className="flex items-center gap-2 bg-teal-800 hover:bg-teal-700 text-white border border-teal-600 px-4 py-3 rounded-xl font-semibold text-xs sm:text-sm transition-all cursor-pointer"
+            >
+              <PackageCheck className="w-4 h-4 text-emerald-300" />
+              <span>{t('Download App Launcher (.html)', '下载手机/电脑启动器文件')}</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={downloadFullApkBuilderBundle}
+              className="flex items-center gap-2 bg-white/10 hover:bg-white/15 text-white border border-white/20 px-4 py-3 rounded-xl font-semibold text-xs sm:text-sm transition-all cursor-pointer"
+            >
+              <Download className="w-4 h-4 text-amber-300" />
+              <span>{t('Download APK Build Bundle', '下载 APK 打包工程配置')}</span>
+            </button>
+          </div>
         </div>
       </div>
 
-      {/* Tabs */}
-      <div className="flex border-b border-gray-200 space-x-6 text-sm font-semibold">
+      {/* Navigation Tabs */}
+      <div className="flex border-b border-slate-200 gap-6 text-sm font-semibold overflow-x-auto">
         <button
-          onClick={() => setActivePlatform('playstore')}
-          className={`pb-3 transition-colors cursor-pointer flex items-center space-x-1.5 ${
-            activePlatform === 'playstore'
-              ? 'text-red-600 border-b-2 border-red-600'
-              : 'text-gray-500 hover:text-gray-900'
+          type="button"
+          onClick={() => setActivePlatform('instant_pwa')}
+          className={`pb-3 transition-colors cursor-pointer flex items-center gap-2 whitespace-nowrap ${
+            activePlatform === 'instant_pwa'
+              ? 'text-teal-900 border-b-2 border-teal-900 font-bold'
+              : 'text-slate-500 hover:text-slate-900'
           }`}
         >
-          <Globe className="w-4 h-4" />
-          <span>Google Play Store (Android)</span>
+          <QrCode className="w-4 h-4" />
+          <span>{t('1. Direct Phone Installation & QR Code (直接装入手机)', '1. 手机扫码/浏览器直接安装 (推荐立即试用)')}</span>
         </button>
 
         <button
-          onClick={() => setActivePlatform('appstore')}
-          className={`pb-3 transition-colors cursor-pointer flex items-center space-x-1.5 ${
-            activePlatform === 'appstore'
-              ? 'text-red-600 border-b-2 border-red-600'
-              : 'text-gray-500 hover:text-gray-900'
-          }`}
-        >
-          <Apple className="w-4 h-4" />
-          <span>Apple App Store (iOS)</span>
-        </button>
-
-        <button
-          onClick={() => setActivePlatform('capacitor')}
-          className={`pb-3 transition-colors cursor-pointer flex items-center space-x-1.5 ${
-            activePlatform === 'capacitor'
-              ? 'text-red-600 border-b-2 border-red-600'
-              : 'text-gray-500 hover:text-gray-900'
+          type="button"
+          onClick={() => setActivePlatform('android_apk')}
+          className={`pb-3 transition-colors cursor-pointer flex items-center gap-2 whitespace-nowrap ${
+            activePlatform === 'android_apk'
+              ? 'text-teal-900 border-b-2 border-teal-900 font-bold'
+              : 'text-slate-500 hover:text-slate-900'
           }`}
         >
           <Terminal className="w-4 h-4" />
-          <span>跨平台原生配置与命令 (Capacitor)</span>
+          <span>{t('2. Build & Download Android .APK File (生成安卓 APK 安装包)', '2. 生成并下载 Android .APK 安装包')}</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActivePlatform('appstore')}
+          className={`pb-3 transition-colors cursor-pointer flex items-center gap-2 whitespace-nowrap ${
+            activePlatform === 'appstore'
+              ? 'text-teal-900 border-b-2 border-teal-900 font-bold'
+              : 'text-slate-500 hover:text-slate-900'
+          }`}
+        >
+          <Apple className="w-4 h-4" />
+          <span>{t('3. App Store & Google Play Store Listing', '3. 苹果 App Store 与 Google Play 上架资料')}</span>
         </button>
       </div>
 
-      {/* Content depending on platform */}
-      {activePlatform === 'playstore' && (
-        <div className="space-y-5">
-          <div className="bg-white rounded-2xl border border-gray-200 p-5 sm:p-6 shadow-sm space-y-4">
-            <h3 className="font-bold text-gray-900 text-base flex items-center justify-between">
-              <span>Google Play 商店元数据配置 (Google Play Console)</span>
-              <span className="text-xs bg-emerald-50 text-emerald-700 font-semibold px-2.5 py-1 rounded-full border border-emerald-200">
-                审核合规标准
-              </span>
-            </h3>
+      {/* TAB 1: Direct Phone Installation & QR Code */}
+      {activePlatform === 'instant_pwa' && (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* Left 2 Columns: Step-by-Step iOS & Android Native Installation */}
+          <div className="lg:col-span-2 space-y-4">
+            <div className="bg-white rounded-2xl border border-slate-200 p-6 space-y-4 shadow-xs">
+              <div className="flex items-center justify-between">
+                <h3 className="text-base font-bold text-slate-900">
+                  {t(
+                    'How Students & Parents Install OralAce on Their Phones Today',
+                    '学生与家长如何今天就把 OralAce 安装到手机桌面？'
+                  )}
+                </h3>
+                <span className="text-xs font-semibold bg-emerald-50 text-emerald-800 px-2.5 py-1 rounded-md border border-emerald-200">
+                  {t('Full-Screen Native Experience', '全屏独立图标 · 免审核即装即用')}
+                </span>
+              </div>
 
-            {/* Field: App Title */}
-            <div className="bg-gray-50 p-3.5 rounded-xl border border-gray-200">
-              <div className="flex items-center justify-between text-xs text-gray-500 mb-1">
-                <span className="font-bold text-gray-700">应用名称 (App Title · 30字符限制)：</span>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* Android */}
+                <div className="rounded-xl bg-slate-50 border border-slate-200 p-4 space-y-3">
+                  <div className="flex items-center gap-2 text-sm font-bold text-teal-950">
+                    <Globe className="w-4 h-4 text-emerald-600" />
+                    <span>{t('Android Phone (Chrome / Edge)', '安卓手机 (Android Chrome)')}</span>
+                  </div>
+                  <ol className="text-xs text-slate-600 space-y-2 list-decimal list-inside leading-relaxed">
+                    <li>
+                      {t(
+                        'Scan the QR code or send the app link to your Android phone via WhatsApp/WeChat and open in Chrome.',
+                        '用手机扫描右侧二维码，或复制链接发到微信/WhatsApp 后用 Chrome 打开。'
+                      )}
+                    </li>
+                    <li>
+                      {t(
+                        'Tap "Install App" in the top bar, or tap the browser menu (⋮) → "Install app".',
+                        '点击页面顶部绿色的“一键装入手机”，或点击右上角菜单 (⋮) 选择“安装应用 (Install app)”。'
+                      )}
+                    </li>
+                    <li>
+                      {t(
+                        'OralAce is installed on your phone desktop with its own icon and full-screen mode!',
+                        '系统将在安卓桌面生成独立的 OralAce 图标，打开即享无地址栏全屏体验！'
+                      )}
+                    </li>
+                  </ol>
+                </div>
+
+                {/* iPhone / iPad */}
+                <div className="rounded-xl bg-slate-50 border border-slate-200 p-4 space-y-3">
+                  <div className="flex items-center gap-2 text-sm font-bold text-teal-950">
+                    <Apple className="w-4 h-4 text-slate-900" />
+                    <span>{t('iPhone / iPad (iOS Safari)', '苹果手机 (iPhone / iPad Safari)')}</span>
+                  </div>
+                  <ol className="text-xs text-slate-600 space-y-2 list-decimal list-inside leading-relaxed">
+                    <li>
+                      {t(
+                        'Open the OralAce link in Safari on your iPhone or iPad.',
+                        '在 iPhone 或 iPad 的原生 Safari 浏览器中打开本应用网址。'
+                      )}
+                    </li>
+                    <li>
+                      {t(
+                        'Tap the "Share" icon (box with upward arrow) at the bottom of Safari.',
+                        '点击 Safari 底部正中央的“分享”按钮（带向上箭头的方框图标）。'
+                      )}
+                    </li>
+                    <li>
+                      {t(
+                        'Select "Add to Home Screen" → tap "Add" in the top-right corner.',
+                        '向下滑动找到“添加到主屏幕 (Add to Home Screen)”，点击右上角“添加”即可！'
+                      )}
+                    </li>
+                  </ol>
+                  {isIOS && (
+                    <div className="text-[11px] font-semibold text-emerald-800 bg-emerald-100/80 px-3 py-1.5 rounded-lg">
+                      {t('You are currently on iOS — tap Share → Add to Home Screen!', '当前设备为 iOS：点击底部“分享 → 添加到主屏幕”即可完成安装！')}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Copy Shareable App Link Bar */}
+              <div className="pt-2 flex flex-wrap items-center justify-between gap-3 border-t border-slate-100">
+                <div className="text-xs text-slate-600 font-mono truncate max-w-md">
+                  {appOrigin}
+                </div>
                 <button
-                  onClick={() => copyText('titleZh', metadata.appNameZh)}
-                  className="flex items-center space-x-1 text-red-600 hover:text-red-700"
+                  type="button"
+                  onClick={() => copyText('appLink', appOrigin)}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#0B3B3C] hover:bg-teal-900 text-white text-xs font-semibold transition-colors cursor-pointer"
                 >
-                  {copiedKey === 'titleZh' ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-                  <span>{copiedKey === 'titleZh' ? '已复制' : '复制'}</span>
+                  {copiedKey === 'appLink' ? (
+                    <>
+                      <Check className="w-3.5 h-3.5 text-emerald-300" />
+                      <span>{t('Copied Mobile Install Link!', '已复制手机安装链接！')}</span>
+                    </>
+                  ) : (
+                    <>
+                      <Share2 className="w-3.5 h-3.5" />
+                      <span>{t('Copy Link for WhatsApp / WeChat', '复制链接发送到手机安装')}</span>
+                    </>
+                  )}
                 </button>
               </div>
-              <p className="font-mono text-sm font-semibold text-gray-900">{metadata.appNameZh}</p>
+            </div>
+          </div>
+
+          {/* Right Column: Mobile QR Card & Status */}
+          <div className="bg-white rounded-2xl border border-slate-200 p-6 flex flex-col items-center justify-between text-center shadow-xs space-y-4">
+            <div className="space-y-1">
+              <div className="text-xs font-bold uppercase tracking-wider text-teal-800">
+                {t('Scan to Install on Phone', '手机相机扫码立即安装')}
+              </div>
+              <p className="text-xs text-slate-500">
+                {t('Open on iOS Safari or Android Chrome', '支持 iPhone Safari 与安卓 Chrome')}
+              </p>
             </div>
 
-            {/* Field: Short Description */}
-            <div className="bg-gray-50 p-3.5 rounded-xl border border-gray-200">
-              <div className="flex items-center justify-between text-xs text-gray-500 mb-1">
-                <span className="font-bold text-gray-700">简短说明 (Short Description · 80字符限制)：</span>
-                <button
-                  onClick={() => copyText('shortZh', metadata.shortDescriptionZh)}
-                  className="flex items-center space-x-1 text-red-600 hover:text-red-700"
-                >
-                  {copiedKey === 'shortZh' ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-                  <span>{copiedKey === 'shortZh' ? '已复制' : '复制'}</span>
-                </button>
-              </div>
-              <p className="text-xs sm:text-sm text-gray-800">{metadata.shortDescriptionZh}</p>
-            </div>
-
-            {/* Field: Full Description */}
-            <div className="bg-gray-50 p-3.5 rounded-xl border border-gray-200">
-              <div className="flex items-center justify-between text-xs text-gray-500 mb-1">
-                <span className="font-bold text-gray-700">完整说明 (Full Description · 4000字符限制)：</span>
-                <button
-                  onClick={() => copyText('fullZh', fullDescriptionZh)}
-                  className="flex items-center space-x-1 text-red-600 hover:text-red-700"
-                >
-                  {copiedKey === 'fullZh' ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-                  <span>{copiedKey === 'fullZh' ? '已复制' : '复制全文'}</span>
-                </button>
-              </div>
-              <textarea
-                readOnly
-                rows={10}
-                value={fullDescriptionZh}
-                className="w-full text-xs font-mono bg-white p-3 rounded-lg border border-gray-200 text-gray-800"
+            <div className="p-3 bg-white rounded-2xl border-2 border-teal-900/20 shadow-inner">
+              <img
+                src={`https://api.qrserver.com/v1/create-qr-code/?size=180x180&color=072B2E&data=${encodeURIComponent(
+                  appOrigin
+                )}`}
+                alt="OralAce Mobile Install QR Code"
+                className="w-40 h-40 rounded-lg"
               />
             </div>
 
-            {/* Field: Tags & Category */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <div className="bg-gray-50 p-3 rounded-xl border border-gray-200">
-                <span className="text-[11px] text-gray-500 block">应用类别</span>
-                <strong className="text-xs text-gray-800">{metadata.category}</strong>
+            <div className="w-full space-y-2 text-left bg-teal-50/70 p-3.5 rounded-xl border border-teal-200/80 text-xs">
+              <div className="flex items-center gap-2 font-semibold text-teal-950">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                <span>{t('PWA Manifest & Icons Verified', '已配置 192px/512px 高清桌面图标')}</span>
               </div>
-              <div className="bg-gray-50 p-3 rounded-xl border border-gray-200">
-                <span className="text-[11px] text-gray-500 block">内容分级</span>
-                <strong className="text-xs text-gray-800">{metadata.contentRating}</strong>
-              </div>
-              <div className="bg-gray-50 p-3 rounded-xl border border-gray-200">
-                <span className="text-[11px] text-gray-500 block">ASO 关键字</span>
-                <strong className="text-xs text-gray-800 truncate block">{metadata.keywords}</strong>
+              <div className="flex items-center gap-2 font-semibold text-teal-950">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                <span>{t('Offline Corpus & Audio Cache Ready', '已启用 Service Worker 离线缓存')}</span>
               </div>
             </div>
           </div>
         </div>
       )}
 
-      {activePlatform === 'appstore' && (
+      {/* TAB 2: Build & Download Android .APK File */}
+      {activePlatform === 'android_apk' && (
         <div className="space-y-5">
-          <div className="bg-white rounded-2xl border border-gray-200 p-5 sm:p-6 shadow-sm space-y-4">
-            <h3 className="font-bold text-gray-900 text-base flex items-center justify-between">
-              <span>Apple App Store 元数据 (App Store Connect)</span>
-              <span className="text-xs bg-blue-50 text-blue-700 font-semibold px-2.5 py-1 rounded-full border border-blue-200">
-                iOS 审核优化
-              </span>
-            </h3>
+          <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs space-y-5">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h3 className="font-bold text-slate-900 text-base">
+                  {t(
+                    '2 Ways to Generate a Native Android .APK Installer File',
+                    '两种零门槛生成原生 Android .APK 安装包文件的方法'
+                  )}
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  {t(
+                    'Generate an installable .apk file in 60 seconds using PWABuilder or GitHub Actions Cloud Builder.',
+                    '无需在本地电脑配置复杂的 Android Studio，60秒云端自动生成可分发的 .apk 安装包。'
+                  )}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={downloadFullApkBuilderBundle}
+                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#0B3B3C] hover:bg-teal-900 text-white text-xs font-semibold cursor-pointer"
+              >
+                <Download className="w-3.5 h-3.5 text-emerald-300" />
+                <span>{t('Download Complete APK Config Bundle', '下载完整 APK 打包配置文件')}</span>
+              </button>
+            </div>
 
-            {/* Info.plist permissions */}
-            <div className="bg-gray-900 text-white p-4 rounded-xl">
-              <div className="flex items-center justify-between text-xs text-gray-400 mb-2">
-                <span className="font-mono">Info.plist (隐私说明 · 必填项)：</span>
+            {/* Method A: PWABuilder 60-second No-Code APK */}
+            <div className="p-4 rounded-xl bg-teal-50/60 border border-teal-200 space-y-2">
+              <div className="text-xs font-bold text-teal-950">
+                {t(
+                  'Method A (Fastest · 60 Seconds): Microsoft PWABuilder 1-Click .APK Generator',
+                  '方式一（最快 · 60秒免编程）：使用微软官方 PWABuilder 一键导出 .APK'
+                )}
+              </div>
+              <p className="text-xs text-slate-700 leading-relaxed">
+                {t(
+                  'Because OralAce already includes a compliant Web App Manifest and Service Worker, you can paste this app’s URL into PWABuilder.com and click "Package for Store → Android → Download APK".',
+                  '由于 OralAce 已完整配置标准 WebManifest 与离线缓存，您只需复制本应用网址，粘贴到微软官方免费打包工具 PWABuilder.com，点击“Package for Store → Android”即可直接下载签名版 OralAce.apk 安装包！'
+                )}
+              </p>
+            </div>
+
+            {/* Method B: GitHub Actions Automatic Cloud APK Builder */}
+            <div className="bg-slate-900 text-white p-4 rounded-xl">
+              <div className="flex items-center justify-between text-xs text-slate-400 mb-2">
+                <span className="font-mono">
+                  {t(
+                    'Method B: GitHub Actions Cloud APK Workflow (.github/workflows/build-android-apk.yml)',
+                    '方式二：GitHub Actions 云端自动编译 APK 工作流 (.github/workflows/build-android-apk.yml)'
+                  )}
+                </span>
                 <button
-                  onClick={() => copyText('plist', iosPlistSnippet)}
-                  className="flex items-center space-x-1 text-red-400 hover:text-red-300"
+                  type="button"
+                  onClick={() => copyText('ghAction', githubActionWorkflow)}
+                  className="flex items-center gap-1 text-emerald-400 hover:text-emerald-300 cursor-pointer"
                 >
-                  {copiedKey === 'plist' ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-                  <span>{copiedKey === 'plist' ? '已复制' : '复制代码'}</span>
+                  {copiedKey === 'ghAction' ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                  <span>{copiedKey === 'ghAction' ? t('Copied', '已复制') : t('Copy Workflow', '复制云端打包脚本')}</span>
                 </button>
               </div>
-              <pre className="text-xs font-mono text-emerald-400 overflow-x-auto whitespace-pre-wrap p-2 bg-black/40 rounded-lg">
-                {iosPlistSnippet}
+              <pre className="text-xs font-mono text-emerald-300 overflow-x-auto whitespace-pre-wrap p-3 bg-black/40 rounded-lg max-h-64">
+                {githubActionWorkflow}
               </pre>
             </div>
 
-            {/* Promotional text */}
-            <div className="bg-gray-50 p-3.5 rounded-xl border border-gray-200">
-              <div className="flex items-center justify-between text-xs text-gray-500 mb-1">
-                <span className="font-bold text-gray-700">宣传文本 (Promotional Text · 170字符限制)：</span>
+            {/* Local CLI Commands */}
+            <div className="bg-slate-900 text-white p-4 rounded-xl">
+              <div className="flex items-center justify-between text-xs text-slate-400 mb-2">
+                <span className="font-mono">{t('Local Capacitor CLI Commands:', '本地终端一键生成 APK 命令 (Capacitor CLI)：')}</span>
                 <button
-                  onClick={() => copyText('promo', '新加坡中学会考华文口试备考神器！精选真实生活短片，AI模拟考官智能追问与三项核心反馈，助你稳拿口试高分！')}
-                  className="flex items-center space-x-1 text-red-600 hover:text-red-700"
-                >
-                  {copiedKey === 'promo' ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-                  <span>{copiedKey === 'promo' ? '已复制' : '复制'}</span>
-                </button>
-              </div>
-              <p className="text-xs sm:text-sm text-gray-800">
-                新加坡中学会考华文口试备考神器！精选真实生活短片，AI模拟考官智能追问与三项核心反馈，助你稳拿口试高分！
-              </p>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {activePlatform === 'capacitor' && (
-        <div className="space-y-5">
-          <div className="bg-white rounded-2xl border border-gray-200 p-5 sm:p-6 shadow-sm space-y-4">
-            <h3 className="font-bold text-gray-900 text-base">
-              跨平台打包配置与自动化命令
-            </h3>
-
-            {/* CLI Build script */}
-            <div className="bg-gray-900 text-white p-4 rounded-xl">
-              <div className="flex items-center justify-between text-xs text-gray-400 mb-2">
-                <span className="font-mono">快速终端构建步骤 (Terminal CLI)：</span>
-                <button
+                  type="button"
                   onClick={() => copyText('cli', cliCommands)}
-                  className="flex items-center space-x-1 text-red-400 hover:text-red-300"
+                  className="flex items-center gap-1 text-amber-300 hover:text-amber-200 cursor-pointer"
                 >
                   {copiedKey === 'cli' ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-                  <span>{copiedKey === 'cli' ? '已复制' : '复制命令'}</span>
+                  <span>{copiedKey === 'cli' ? t('Copied', '已复制') : t('Copy Commands', '复制命令')}</span>
                 </button>
               </div>
-              <pre className="text-xs font-mono text-amber-300 overflow-x-auto whitespace-pre-wrap p-2 bg-black/40 rounded-lg">
+              <pre className="text-xs font-mono text-amber-200 overflow-x-auto whitespace-pre-wrap p-3 bg-black/40 rounded-lg">
                 {cliCommands}
               </pre>
             </div>
+          </div>
+        </div>
+      )}
 
-            {/* capacitor.config.json */}
-            <div className="bg-gray-900 text-white p-4 rounded-xl">
-              <div className="flex items-center justify-between text-xs text-gray-400 mb-2">
-                <span className="font-mono">capacitor.config.json：</span>
+      {/* TAB 3: App Store & Google Play Metadata */}
+      {activePlatform === 'appstore' && (
+        <div className="space-y-5">
+          <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs space-y-4">
+            <h3 className="font-bold text-slate-900 text-base flex items-center justify-between">
+              <span>
+                {t('Google Play & Apple App Store Listing Metadata', 'Google Play 与 Apple App Store 商店上架文案')}
+              </span>
+              <span className="text-xs bg-emerald-50 text-emerald-700 font-semibold px-2.5 py-1 rounded-full border border-emerald-200">
+                {t('Store Ready', '合规就绪')}
+              </span>
+            </h3>
+
+            <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200">
+              <div className="flex items-center justify-between text-xs text-slate-500 mb-1">
+                <span className="font-bold text-slate-700">
+                  {t('App Title:', '应用名称：')}
+                </span>
                 <button
-                  onClick={() => copyText('capConfig', capacitorConfig)}
-                  className="flex items-center space-x-1 text-red-400 hover:text-red-300"
+                  type="button"
+                  onClick={() => copyText('title', lang === 'en' ? metadata.appNameEn : metadata.appNameZh)}
+                  className="flex items-center gap-1 text-teal-800 hover:text-teal-950 cursor-pointer"
                 >
-                  {copiedKey === 'capConfig' ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-                  <span>{copiedKey === 'capConfig' ? '已复制' : '复制配置'}</span>
+                  {copiedKey === 'title' ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                  <span>{copiedKey === 'title' ? t('Copied', '已复制') : t('Copy', '复制')}</span>
                 </button>
               </div>
-              <pre className="text-xs font-mono text-cyan-300 overflow-x-auto whitespace-pre-wrap p-2 bg-black/40 rounded-lg">
-                {capacitorConfig}
-              </pre>
+              <p className="font-mono text-sm font-semibold text-slate-900">
+                {lang === 'en' ? metadata.appNameEn : metadata.appNameZh}
+              </p>
             </div>
 
-            {/* AndroidManifest.xml */}
-            <div className="bg-gray-900 text-white p-4 rounded-xl">
-              <div className="flex items-center justify-between text-xs text-gray-400 mb-2">
-                <span className="font-mono">AndroidManifest.xml 核心权限与声明：</span>
+            <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200">
+              <div className="flex items-center justify-between text-xs text-slate-500 mb-1">
+                <span className="font-bold text-slate-700">
+                  {t('Short Description:', '简短说明：')}
+                </span>
                 <button
-                  onClick={() => copyText('manifest', androidManifestSnippet)}
-                  className="flex items-center space-x-1 text-red-400 hover:text-red-300"
+                  type="button"
+                  onClick={() => copyText('short', lang === 'en' ? metadata.shortDescriptionEn : metadata.shortDescriptionZh)}
+                  className="flex items-center gap-1 text-teal-800 hover:text-teal-950 cursor-pointer"
                 >
-                  {copiedKey === 'manifest' ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-                  <span>{copiedKey === 'manifest' ? '已复制' : '复制配置'}</span>
+                  {copiedKey === 'short' ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                  <span>{copiedKey === 'short' ? t('Copied', '已复制') : t('Copy', '复制')}</span>
                 </button>
               </div>
-              <pre className="text-xs font-mono text-emerald-300 overflow-x-auto whitespace-pre-wrap p-2 bg-black/40 rounded-lg">
-                {androidManifestSnippet}
-              </pre>
+              <p className="text-xs sm:text-sm text-slate-800">
+                {lang === 'en' ? metadata.shortDescriptionEn : metadata.shortDescriptionZh}
+              </p>
             </div>
           </div>
         </div>

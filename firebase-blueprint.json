@@ -1,0 +1,178 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "User account profile, subscription plan tier, and trial quota state.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "description": "Firebase Auth UID of the user",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "displayName": {
+          "type": "string",
+          "description": "Student or teacher display name",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "planTier": {
+          "type": "string",
+          "description": "Subscription tier",
+          "enum": ["trial", "monthly_pro", "annual_pro", "school_pass"],
+          "maxLength": 32
+        },
+        "trialSessionsRemaining": {
+          "type": "integer",
+          "description": "Remaining free trial AI diagnostic sessions"
+        },
+        "weeklyStreak": {
+          "type": "integer",
+          "description": "Consecutive weekly practice streak"
+        },
+        "totalSessionsCompleted": {
+          "type": "integer",
+          "description": "Total completed oral practice sessions"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when user profile was created"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when user profile was last updated"
+        }
+      },
+      "required": [
+        "uid",
+        "displayName",
+        "planTier",
+        "trialSessionsRemaining",
+        "weeklyStreak",
+        "totalSessionsCompleted",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "UserPrivateInfo": {
+      "title": "UserPrivateInfo",
+      "description": "Isolated PII and subscription billing record for the user.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "description": "Owner Firebase Auth UID",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "description": "Verified user email address",
+          "minLength": 3,
+          "maxLength": 254
+        },
+        "activePlanName": {
+          "type": "string",
+          "description": "Human-readable subscription plan name",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of last update"
+        }
+      },
+      "required": ["uid", "email", "activePlanName", "updatedAt"]
+    },
+    "PracticeRecord": {
+      "title": "PracticeRecord",
+      "description": "Completed O-Level oral exam practice record stored under a user subcollection.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "Owner user UID",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "topicId": {
+          "type": "string",
+          "description": "Oral topic identifier",
+          "minLength": 1,
+          "maxLength": 100,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "topicTitle": {
+          "type": "string",
+          "description": "Oral topic title",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "totalScore": {
+          "type": "integer",
+          "description": "Total SEAB rubric score out of 50"
+        },
+        "band": {
+          "type": "string",
+          "description": "SEAB grade band",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "initialTranscript": {
+          "type": "string",
+          "description": "Student initial spoken response transcript",
+          "minLength": 1,
+          "maxLength": 5000
+        },
+        "followUpQuestion": {
+          "type": "string",
+          "description": "AI examiner follow-up question",
+          "maxLength": 2000
+        },
+        "followUpTranscript": {
+          "type": "string",
+          "description": "Student follow-up response transcript",
+          "maxLength": 5000
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when the practice was saved"
+        }
+      },
+      "required": [
+        "userId",
+        "topicId",
+        "topicTitle",
+        "totalScore",
+        "band",
+        "initialTranscript",
+        "followUpQuestion",
+        "followUpTranscript",
+        "createdAt"
+      ]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "User account profile, plan tier, and trial quota state."
+    },
+    "/users/{userId}/private/{docId}": {
+      "schema": { "$ref": "#/entities/UserPrivateInfo" },
+      "description": "Isolated PII (email and billing metadata) for the user."
+    },
+    "/users/{userId}/practices/{practiceId}": {
+      "schema": { "$ref": "#/entities/PracticeRecord" },
+      "description": "Subcollection of completed O-Level oral practice records belonging to the user."
+    }
+  }
+}

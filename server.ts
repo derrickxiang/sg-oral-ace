@@ -4,7 +4,7 @@ import fs from 'fs';
 import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
-import { GoogleGenAI } from '@google/genai';
+import { GoogleGenAI, ThinkingLevel } from '@google/genai';
 import {
   analyzeOralTranscript,
   determineBand,
@@ -26,20 +26,47 @@ if (!fs.existsSync(NARRATION_AUDIO_DIR)) {
   fs.mkdirSync(NARRATION_AUDIO_DIR, { recursive: true });
 }
 
+const VIDEOS_DIR = path.resolve(__dirname, 'public', 'videos');
+if (!fs.existsSync(VIDEOS_DIR)) {
+  fs.mkdirSync(VIDEOS_DIR, { recursive: true });
+}
+
 const app = express();
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 
-app.use(express.json({ limit: '10mb' }));
+app.use(express.json({ limit: '60mb' }));
 app.use('/audio', express.static(path.resolve(__dirname, 'public', 'audio'), { maxAge: '7d' }));
+app.use('/videos', express.static(VIDEOS_DIR, { maxAge: '7d' }));
 
 // Initialize GoogleGenAI if GEMINI_API_KEY is present
 let aiClient: GoogleGenAI | null = null;
 if (process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY !== 'MY_GEMINI_API_KEY') {
   try {
-    aiClient = new GoogleGenAI({});
+    aiClient = new GoogleGenAI({
+      httpOptions: { headers: { 'User-Agent': 'aistudio-build' } },
+    });
   } catch (err) {
     console.warn('Failed to initialize GoogleGenAI with provided key, using local fallback:', err);
   }
+}
+
+// High-speed in-memory caches for sub-100ms repeat/sample responses
+const followupCache = new Map<string, any>();
+const evaluationCache = new Map<string, EvaluationResult>();
+
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`Timeout after ${ms}ms`)), ms);
+    promise
+      .then((val) => {
+        clearTimeout(timer);
+        resolve(val);
+      })
+      .catch((err) => {
+        clearTimeout(timer);
+        reject(err);
+      });
+  });
 }
 
 function cleanSpeechText(raw: string): string {
@@ -222,6 +249,78 @@ app.get('/api/oral/topic-narrations/:topicId', async (req: Request, res: Respons
   }
 });
 
+// List all permanently saved topic videos (.mp4 or .webm) from public/videos/
+app.get('/api/oral/topic-videos', (_req: Request, res: Response) => {
+  try {
+    const videos: Record<string, { url: string; format: string; sizeKB: number; updatedAt: string }> = {};
+    if (fs.existsSync(VIDEOS_DIR)) {
+      const files = fs.readdirSync(VIDEOS_DIR);
+      for (const file of files) {
+        const match = file.match(/^(topic-[a-z0-9-]+)\.(mp4|webm)$/i);
+        if (match) {
+          const topicId = match[1];
+          const ext = match[2].toLowerCase();
+          const stat = fs.statSync(path.join(VIDEOS_DIR, file));
+          if (stat.size > 1000) {
+            // Prefer .mp4 over .webm if both exist
+            if (!videos[topicId] || ext === 'mp4') {
+              videos[topicId] = {
+                url: `/videos/${file}?t=${Math.floor(stat.mtimeMs)}`,
+                format: ext.toUpperCase(),
+                sizeKB: Math.round(stat.size / 1024),
+                updatedAt: stat.mtime.toISOString(),
+              };
+            }
+          }
+        }
+      }
+    }
+    return res.json({ videos });
+  } catch (err: any) {
+    console.warn('Error scanning /api/oral/topic-videos:', err);
+    return res.json({ videos: {} });
+  }
+});
+
+// Permanently save an uploaded Google Flow (.mp4) or synthesized (.webm) video for a topic
+app.post('/api/oral/save-video', async (req: Request, res: Response) => {
+  try {
+    const { topicId, videoBase64, mimeType = 'video/mp4', source = 'Google Flow AI Pro' } = req.body;
+    if (!topicId || !/^topic-[a-z0-9-]+$/i.test(topicId)) {
+      return res.status(400).json({ error: 'Invalid topicId' });
+    }
+    if (!videoBase64 || typeof videoBase64 !== 'string') {
+      return res.status(400).json({ error: 'Missing videoBase64 payload' });
+    }
+
+    const cleanBase64 = videoBase64.replace(/^data:video\/[a-z0-9.+-]+;base64,/i, '');
+    const buffer = Buffer.from(cleanBase64, 'base64');
+    if (buffer.length < 1000) {
+      return res.status(400).json({ error: 'Video file is too small or corrupted' });
+    }
+
+    const ext = mimeType.includes('webm') ? 'webm' : 'mp4';
+    const filename = `${topicId}.${ext}`;
+    const filePath = path.join(VIDEOS_DIR, filename);
+    fs.writeFileSync(filePath, buffer);
+
+    const stat = fs.statSync(filePath);
+    const videoUrl = `/videos/${filename}?t=${Math.floor(stat.mtimeMs)}`;
+    return res.json({
+      success: true,
+      topicId,
+      videoUrl,
+      format: ext.toUpperCase(),
+      sizeKB: Math.round(stat.size / 1024),
+      source,
+      updatedAt: stat.mtime.toISOString(),
+    });
+  } catch (err: any) {
+    console.error('Error saving topic video:', err);
+    return res.status(500).json({ error: 'Failed to save video file', details: err?.message });
+  }
+});
+
 // AI Natural Speech TTS endpoint (with permanent disk caching so identical prompts play the exact same saved file)
 app.post('/api/oral/tts', async (req: Request, res: Response) => {
   try {
@@ -254,88 +353,112 @@ app.post('/api/oral/tts', async (req: Request, res: Response) => {
   }
 });
 
-// 1. Follow-up Question Generation (AI 考官智能追问)
+// 1. Follow-up Question Generation (AI 考官智能追问 — Low-Latency ThinkingLevel.LOW + Cache)
 app.post('/api/oral/followup', async (req: Request, res: Response) => {
+  const startTime = Date.now();
   try {
-    const { topicTitle, primaryQuestion, studentTranscript } = req.body;
+    const { topicTitle, primaryQuestion, studentTranscript, fastMode } = req.body;
 
     if (!studentTranscript || studentTranscript.trim().length === 0) {
       return res.status(400).json({ error: '回答内容不能为空' });
     }
 
-    if (aiClient) {
+    const cacheKey = crypto
+      .createHash('sha1')
+      .update(`followup:${topicTitle || ''}:${studentTranscript.trim()}`)
+      .digest('hex');
+
+    if (followupCache.has(cacheKey)) {
+      const cached = followupCache.get(cacheKey);
+      return res.json({
+        ...cached,
+        latencyMs: Date.now() - startTime,
+        cached: true,
+      });
+    }
+
+    if (aiClient && !fastMode) {
       try {
-        const prompt = `
-你是一位专业严谨、经验丰富的新加坡教育部（MOE/SEAB）中学会考（GCE O-Level）华文口试资深考官。
-考生刚刚观看了生活话题短片《${topicTitle}》，并回答了首个考题：“${primaryQuestion}”。
-考生的口头回答速记如下：
-“${studentTranscript}”
+        const prompt = `你是新加坡O水准（SEAB Paper 3）华文口试考官。
+短片：《${topicTitle}》 | 首问：“${primaryQuestion}”
+考生回答：“${studentTranscript}”
+请针对考生回答的逻辑盲点或未展开角度（如只谈惩罚未谈教育、缺乏个人亲身经历、或忽略现实阻力），用温和规范的新加坡考官口吻提出1个追问（50-85字）。
+仅输出JSON：
+{"followUpQuestion":"你刚才提到……那么在现实生活中……？","rationaleForQuestion":"考查意图（30字内）","examinerToneAdvice":"应对提示（25字内）"}`;
 
-任务要求：
-1. 请根据考生的具体回答内容，提出 1 个具有针对性、启发性的“考官追问”（Follow-up Question）。
-2. 追问必须紧扣考生刚才表达中的漏洞、未深入说明的论点、或考察其是否具备多角度思考（例如考生只强调了罚款，追问其教育引导是否更重要；考生只谈了他人，追问其在学校或家庭中的个人亲身经历；考生表达过于理想化，追问其在现实中推行可能面临的阻力）。
-3. 语气要符合新加坡O水准华文考官的标准：温和亲切、规范严谨，多用“你刚才提到……那么在现实生活中……？”
-4. 请以 JSON 格式输出，字段如下：
-{
-  "followUpQuestion": "考官追问的问题正文",
-  "rationaleForQuestion": "为什么针对学生刚才的回答提出此追问（考查意图）",
-  "examinerToneAdvice": "给学生的临场心理提示（如：保持冷静、结合个人见闻展开）"
-}
-`;
-
-        const response = await aiClient.models.generateContent({
-          model: 'gemini-3.8-flash',
-          contents: prompt,
-          config: {
-            responseMimeType: 'application/json',
-            temperature: 0.7,
-          },
-        });
+        const response = await withTimeout(
+          aiClient.models.generateContent({
+            model: 'gemini-3.8-flash',
+            contents: prompt,
+            config: {
+              responseMimeType: 'application/json',
+              thinkingConfig: {
+                thinkingLevel: ThinkingLevel.LOW,
+              },
+            },
+          }),
+          3200
+        );
 
         const responseText = response.text || '';
         const parsed = JSON.parse(responseText);
-        return res.json({
+        const payload = {
           ...parsed,
+          latencyMs: Date.now() - startTime,
           aiMetadata: {
-            engine: 'Google Gemini 3.8 Flash (实时大模型生成)',
+            engine: 'Google Gemini 3.8 Flash (ThinkingLevel.LOW 极速推理)',
             model: 'gemini-3.8-flash',
             timestamp: new Date().toISOString(),
           },
-        });
+        };
+        followupCache.set(cacheKey, payload);
+        return res.json(payload);
       } catch (e) {
-        console.warn('Gemini follow-up API call failed, falling back to SEAB syllabus heuristics:', e);
+        console.warn('Gemini follow-up API timed out or fell back to instant SEAB engine:', e);
       }
     }
 
-    // Fallback: Intelligent heuristic follow-up generator tailored to Singapore O-Level
+    // Instant SEAB syllabus heuristic follow-up generator (<5ms)
     const cleaned = studentTranscript.toLowerCase();
     let followUpQuestion = '';
     let rationale = '';
 
     if (cleaned.includes('罚款') || cleaned.includes('法律') || cleaned.includes('警察') || cleaned.includes('惩罚')) {
-      followUpQuestion = '你刚才提到可以通过提高罚款和严格执法来解决问题。但如果在现实生活中，有些年长者或低收入群体确实无力承担，你认为单靠重罚是否能从根本上改变人们的习惯？学校和社区还可以采取哪些更温和有效的引导方式？';
+      followUpQuestion =
+        '你刚才提到可以通过提高罚款和严格执法来解决问题。但如果在现实生活中，有些年长者或低收入群体确实无力承担，你认为单靠重罚是否能从根本上改变人们的习惯？学校和社区还可以采取哪些更温和有效的引导方式？';
       rationale = '考生过于侧重刚性惩罚手段，追问旨在引导其反思法制与德治的关系，拓展至学校育人与社区关怀。';
     } else if (cleaned.includes('应该') && !cleaned.includes('我记得') && !cleaned.includes('有一次')) {
-      followUpQuestion = '你刚才提出了不少很好的建议和道理。那么在你的学校或日常邻里生活中，你自己或者身边的同学朋友，是否曾亲身经历过类似的事情？当时你们是如何处理的？';
+      followUpQuestion =
+        '你刚才提出了不少很好的建议和道理。那么在你的学校或日常邻里生活中，你自己或者身边的同学朋友，是否曾亲身经历过类似的事情？当时你们是如何处理的？';
       rationale = '考生论述停留在口号式的倡议层面，追问意在促使考生结合真实生活经历（Personal Experience），增强说服力。';
     } else {
-      followUpQuestion = '听了你的观点，如果要在全岛范围内真正推广并内化为你所说的这种风气，你认为目前最大的现实阻力是什么？年轻人又能扮演怎样独特的积极角色？';
+      followUpQuestion =
+        '听了你的观点，如果要在全岛范围内真正推广并内化为你所说的这种风气，你认为目前最大的现实阻力是什么？年轻人又能扮演怎样独特的积极角色？';
       rationale = '考察考生对现实社会复杂性的体察洞察力，以及青少年作为社会先锋的主体担当意识。';
     }
 
-    return res.json({
+    const fallbackPayload = {
       followUpQuestion,
       rationaleForQuestion: rationale,
       examinerToneAdvice: '答追问时不必慌张，可先用一句话承接考官问题，再分两点阐述，并结合自身经历佐证。',
-    });
+      latencyMs: Date.now() - startTime,
+      aiMetadata: {
+        engine: 'SEAB 口试极速规则引擎 (<10ms 零延迟响应)',
+        model: 'seab-fast-engine',
+        timestamp: new Date().toISOString(),
+      },
+    };
+    followupCache.set(cacheKey, fallbackPayload);
+    return res.json(fallbackPayload);
   } catch (err: any) {
     console.error('Error generating follow-up:', err);
     return res.status(500).json({ error: '生成追问失败', details: err?.message });
   }
 });
 
-// 2. Comprehensive SEAB Evaluation (三项核心反馈 + 评分标准 + 发音纠错)
+// 2. Comprehensive SEAB Evaluation (Hybrid Parallel: Instant Local Corpus/Pronunciation + Low-Latency Gemini Rubric)
 app.post('/api/oral/evaluate', async (req: Request, res: Response) => {
+  const startTime = Date.now();
   try {
     const {
       topicId,
@@ -345,126 +468,110 @@ app.post('/api/oral/evaluate', async (req: Request, res: Response) => {
       followUpQuestion,
       followUpTranscript,
       audioDurationSeconds = 45,
+      fastMode = false,
     } = req.body;
 
     const fullStudentText = `${initialTranscript || ''}\n${followUpTranscript || ''}`.trim();
+    const evalCacheKey = crypto
+      .createHash('sha1')
+      .update(`eval:${topicId}:${fullStudentText}`)
+      .digest('hex');
+
+    if (evaluationCache.has(evalCacheKey)) {
+      const cached = evaluationCache.get(evalCacheKey)!;
+      return res.json({
+        ...cached,
+        id: `eval-${Date.now()}`,
+        createdAt: new Date().toISOString(),
+      });
+    }
+
+    // 0ms deterministic local computation for pronunciation traps & corpus suggestions
     const localAnalysis = analyzeOralTranscript(fullStudentText);
     const localPronunciationIssues = detectPronunciationIssues(fullStudentText);
+    const defaultPronunciationIssues =
+      localPronunciationIssues.length > 0
+        ? localPronunciationIssues
+        : [
+            {
+              word: '角色',
+              pinyin: 'jué sè',
+              studentMistake: '常被误读为 jiǎo sè',
+              explanation: '在华语中表示“扮演角色、社会角色”时必须读第二声 jué。',
+              toneInfo: '第二声 (阳平 /)',
+              category: 'polyphone' as const,
+            },
+            {
+              word: '提供',
+              pinyin: 'tí gōng',
+              studentMistake: '常被误读为 tí gòng',
+              explanation: '动词表示供给、出资或提供服务时读第一声 gōng。',
+              toneInfo: '第一声 (阴平 —)',
+              category: 'polyphone' as const,
+            },
+          ];
 
-    if (aiClient) {
-      const evaluationPrompt = `
-你是一位专门负责新加坡教育部（MOE/SEAB）中学会考（GCE O-Level）华文口试试卷三（Paper 3）录像口试与会话的首席考官。
-考题信息：
-- 话题短片：《${topicTitle}》
-- 考官首问：“${primaryQuestion}”
-- 考生首答：“${initialTranscript || ''}”
-- 考官追问：“${followUpQuestion || '无'}”
-- 考生追答：“${followUpTranscript || '无'}”
+    const defaultCorpusSuggestions = {
+      connectives: [
+        { type: '因果' as const, words: ['之所以', '其根本原因在于'], example: '之所以出现不文明现象，其根本原因在于同理心教育尚未内化。' },
+        { type: '转折' as const, words: ['不可否认的是', '话虽如此'], example: '不可否认的是，罚款能起震慑作用，但长远仍依赖公民自律。' },
+        { type: '递进' as const, words: ['不仅如此', '更进一步来说'], example: '不仅如此，保持桌面整洁更体现了对弱势群体的尊重。' },
+        { type: '总结' as const, words: ['总而言之', '长远来看'], example: '总而言之，唯有多管齐下，方能构建真正的优雅社会。' },
+      ],
+      idiomsAndProverbs: [
+        { phrase: '举手之劳', meaning: '轻而易举毫不费力', usageContext: '形容随手归还托盘与顺手关灯' },
+        { phrase: '潜移默化', meaning: '思想品德受感染无形改变', usageContext: '形容父母言传身教与校园风气熏陶' },
+        { phrase: '双管齐下', meaning: '两项措施并进配合', usageContext: '形容严格执法与宣传教育紧密结合' },
+      ],
+      singaporeTerms: [
+        { term: '小贩中心', properUsage: '规范华语称呼熟食中心，体现非遗文化' },
+        { term: '租赁组屋', properUsage: '新加坡公共住房关怀乐龄群体的语境' },
+      ],
+    };
 
-评分依据：
-新加坡 O-Level 华文口试评分细则（满分 50 分）：
-1. 思想内容 (15分)：论点是否明确切题、见解是否深刻独到、是否有个人见闻例证、是否有多角度思考（个人/学校/家庭/社会）。
-2. 表达与结构 (15分)：条理是否分明、语流是否连贯、是否合理运用逻辑连接词（如之所以、不可否认的是、长远来看）、结构是否完整（如总分总或ORID）。
-3. 词汇与语料 (10分)：用词是否规范丰富、成语与高分语料搭配是否恰当、是否避免口语化低效词汇。
-4. 语音与发音 (10分)：普通话咬字四声是否清晰准确、是否纠正了新加坡华语常见易错读音（如角色 jué sè，塑料 sù liào，提供 tí gōng，潜移默化 qián yí mò huà 等）。
+    if (aiClient && !fastMode) {
+      // Compact, focused prompt: Gemini only generates the dynamic rubric & tripleFeedback with ThinkingLevel.LOW
+      const evaluationPrompt = `你是新加坡O水准（SEAB Paper 3）华文口试首席考官。
+短片：《${topicTitle}》 | 首问：“${primaryQuestion}”
+考生首答：“${initialTranscript || ''}”
+考官追问：“${followUpQuestion || '无'}” | 考生追答：“${followUpTranscript || '无'}”
 
-请务必严格按以下三项核心结构与评分输出 JSON：
+按SEAB满分50分（内容15、表达15、词汇10、语音10）及三项核心诊断，输出精简JSON：
 {
   "totalScore": 38,
   "band": "Band 2 (优良 34-41)",
   "rubric": {
-    "content": {
-      "name": "思想内容",
-      "score": 11,
-      "maxScore": 15,
-      "level": "优良 (Band 2)",
-      "feedback": "论述切题，但见解可更深入……",
-      "keyObservations": ["能抓住短片核心", "缺乏个人亲身经历例证"]
-    },
-    "expression": {
-      "name": "表达与结构",
-      "score": 11,
-      "maxScore": 15,
-      "level": "优良 (Band 2)",
-      "feedback": "整体流畅，衔接较为自然……",
-      "keyObservations": ["使用总分总框架", "缺少部分因果转折连接词"]
-    },
-    "vocabulary": {
-      "name": "词汇与语料",
-      "score": 8,
-      "maxScore": 10,
-      "level": "优良 (Band 2)",
-      "feedback": "用词规范，能使用常见词汇……",
-      "keyObservations": ["语言得体", "可多增加四字成语"]
-    },
-    "pronunciation": {
-      "name": "语音与发音",
-      "score": 8,
-      "maxScore": 10,
-      "level": "优良 (Band 2)",
-      "feedback": "咬字清楚，语调自然……",
-      "keyObservations": ["声调整体准确", "注意多音字辨析"]
-    }
+    "content": { "name": "思想内容", "score": 11, "maxScore": 15, "level": "优良 (Band 2)", "feedback": "1句话评语", "keyObservations": ["要点1", "要点2"] },
+    "expression": { "name": "表达与结构", "score": 11, "maxScore": 15, "level": "优良 (Band 2)", "feedback": "1句话评语", "keyObservations": ["要点1", "要点2"] },
+    "vocabulary": { "name": "词汇与语料", "score": 8, "maxScore": 10, "level": "优良 (Band 2)", "feedback": "1句话评语", "keyObservations": ["要点1", "要点2"] },
+    "pronunciation": { "name": "语音与发音", "score": 8, "maxScore": 10, "level": "优良 (Band 2)", "feedback": "1句话评语", "keyObservations": ["要点1", "要点2"] }
   },
   "tripleFeedback": {
-    "clearExpression": {
-      "summary": "哪里表达清楚的总体评价（肯定优点）",
-      "highlights": ["亮点1：如首尾呼应明确点题", "亮点2：论述了……"],
-      "goodPhrasesUsed": ["考生使用得当的优秀词汇或短语"]
-    },
-    "missingReasons": {
-      "summary": "哪里缺少理由的总体剖析（指出逻辑漏洞与论据不足）",
-      "gaps": ["漏洞1：只给出主张未解释为什么有效", "漏洞2：缺乏个人见闻或具象生活故事"],
-      "suggestedAngles": ["建议补充的角度1：家庭与学校教育", "建议补充的角度2：从长远社会风气培养"]
-    },
+    "clearExpression": { "summary": "哪里表达清楚总结", "highlights": ["亮点1", "亮点2"], "goodPhrasesUsed": ["得当词汇1", "得当词汇2"] },
+    "missingReasons": { "summary": "哪里缺少理由总结", "gaps": ["漏洞1", "漏洞2"], "suggestedAngles": ["补充角度1", "补充角度2"] },
     "nextTimeImprovements": {
-      "summary": "下一次怎么改的明确行动建议",
-      "actionableSteps": ["具体行动点1", "具体行动点2"],
-      "modelSentenceStarter": [
-        "句式示范1：看了这个短片，我深有感触……",
-        "句式示范2：之所以会出现……其根源在于……"
-      ],
-      "oridFrameworkExample": {
-        "objective": "短片见闻客观描述",
-        "reflective": "个人主观情感触动",
-        "interpretive": "成因与价值深层剖析",
-        "decisional": "行动建议与长远展望"
-      }
+      "summary": "下一次怎么改总结",
+      "actionableSteps": ["改进步骤1", "改进步骤2"],
+      "modelSentenceStarter": ["高分句式示范1", "高分句式示范2"],
+      "oridFrameworkExample": { "objective": "见闻", "reflective": "感受", "interpretive": "剖析", "decisional": "建议" }
     }
-  },
-  "pronunciationIssues": [
-    {
-      "word": "角色",
-      "pinyin": "jué sè",
-      "studentMistake": "误读为 jiǎo sè",
-      "explanation": "戏剧或社会身份时必须读二声 jué。",
-      "toneInfo": "第二声 (阳平 /)",
-      "category": "polyphone"
-    }
-  ],
-  "corpusSuggestions": {
-    "connectives": [
-      { "type": "因果", "words": ["之所以", "其根源在于"], "example": "之所以不愿自备餐盒，其根源在于缺乏长远环保意识。" }
-    ],
-    "idiomsAndProverbs": [
-      { "phrase": "潜移默化", "meaning": "不知不觉受到感染", "usageContext": "适合用于家庭言传身教" }
-    ],
-    "singaporeTerms": [
-      { "term": "小贩中心 / 熟食中心", "properUsage": "规范华语表达，避免直译 hawker centre" }
-    ]
   }
-}
-`;
+}`;
 
       try {
-        const aiResponse = await aiClient.models.generateContent({
-          model: 'gemini-3.8-flash',
-          contents: evaluationPrompt,
-          config: {
-            responseMimeType: 'application/json',
-            temperature: 0.6,
-          },
-        });
+        const aiResponse = await withTimeout(
+          aiClient.models.generateContent({
+            model: 'gemini-3.8-flash',
+            contents: evaluationPrompt,
+            config: {
+              responseMimeType: 'application/json',
+              thinkingConfig: {
+                thinkingLevel: ThinkingLevel.LOW,
+              },
+            },
+          }),
+          3600
+        );
 
         const text = aiResponse.text || '';
         const parsed = JSON.parse(text);
@@ -477,41 +584,26 @@ app.post('/api/oral/evaluate', async (req: Request, res: Response) => {
           band: parsed.band || determineBand(parsed.totalScore || localAnalysis.totalScore),
           rubric: parsed.rubric,
           tripleFeedback: parsed.tripleFeedback,
-          pronunciationIssues: parsed.pronunciationIssues?.length > 0 ? parsed.pronunciationIssues : localPronunciationIssues,
-          corpusSuggestions: parsed.corpusSuggestions || {
-            connectives: [
-              { type: '因果', words: ['之所以', '其根本原因在于'], example: '之所以出现不文明现象，其根源在于公德心淡薄。' },
-              { type: '转折', words: ['不可否认的是', '话虽如此'], example: '不可否认的是，罚款能起一时之效，但长远仍赖教育。' },
-              { type: '递进', words: ['不仅如此', '更进一步来说'], example: '不仅如此，保持桌面整洁更体现了对乐龄工人的同理心。' },
-              { type: '总结', words: ['总而言之', '长远来看'], example: '总而言之，唯有多管齐下，方能构建优雅社会。' },
-            ],
-            idiomsAndProverbs: [
-              { phrase: '举手之劳', meaning: '轻而易举毫不费力', usageContext: '形容归还托盘与垃圾分类' },
-              { phrase: '潜移默化', meaning: '思想品德受感染无形改变', usageContext: '形容家庭与学校教育熏陶' },
-              { phrase: '双管齐下', meaning: '两项措施并进配合', usageContext: '形容法律威慑与品德教育结合' },
-            ],
-            singaporeTerms: [
-              { term: '小贩中心', properUsage: '规范华语称呼熟食中心，体现非遗文化' },
-              { term: '租凭组屋', properUsage: '新加坡公共住房关怀老龄群体的语境' },
-            ],
-          },
+          pronunciationIssues: defaultPronunciationIssues,
+          corpusSuggestions: defaultCorpusSuggestions,
           initialTranscript,
           followUpQuestion,
           followUpTranscript,
           audioDurationSeconds,
           aiMetadata: {
-            engine: 'Google Gemini 3.8 Flash (实时大模型精细评分)',
+            engine: `Google Gemini 3.8 Flash (ThinkingLevel.LOW 极速混合引擎 · ${Date.now() - startTime}ms)`,
             model: 'gemini-3.8-flash',
             analysisFocus: '针对学生口语表达的逻辑严密性、新加坡本土真实生活例证及规范华语四声展开深度剖析',
           },
         };
+        evaluationCache.set(evalCacheKey, result);
         return res.json(result);
       } catch (err) {
-        console.warn('Gemini evaluation API failed or returned non-JSON, falling back to local SEAB engine:', err);
+        console.warn('Gemini evaluation timed out or fell back to instant SEAB engine:', err);
       }
     }
 
-    // Heuristic fallback matching SEAB syllabus criteria
+    // Instant Hybrid SEAB syllabus evaluation (<15ms)
     const triple = generateTripleFeedback(fullStudentText, localAnalysis, topicTitle);
     const band = determineBand(localAnalysis.totalScore);
 
@@ -567,51 +659,19 @@ app.post('/api/oral/evaluate', async (req: Request, res: Response) => {
         },
       },
       tripleFeedback: triple,
-      pronunciationIssues: localPronunciationIssues.length > 0 ? localPronunciationIssues : [
-        {
-          word: '角色',
-          pinyin: 'jué sè',
-          studentMistake: '常被误读为 jiǎo sè',
-          explanation: '在华语中表示“扮演角色、社会角色”时必须读第二声 jué。',
-          toneInfo: '第二声 (阳平 /)',
-          category: 'polyphone',
-        },
-        {
-          word: '提供',
-          pinyin: 'tí gōng',
-          studentMistake: '常被误读为 tí gòng',
-          explanation: '动词表示供给、出资或提供服务时读第一声 gōng。',
-          toneInfo: '第一声 (阴平 —)',
-          category: 'polyphone',
-        },
-      ],
-      corpusSuggestions: {
-        connectives: [
-          { type: '因果', words: ['之所以', '其根本原因在于'], example: '之所以出现不文明现象，其根本原因在于同理心教育尚未内化。' },
-          { type: '转折', words: ['不可否认的是', '话虽如此'], example: '不可否认的是，罚款能起震慑作用，但长远仍依赖公民自律。' },
-          { type: '递进', words: ['不仅如此', '更进一步来说'], example: '不仅如此，保持桌面整洁更体现了对弱势群体的尊重。' },
-          { type: '总结', words: ['总而言之', '长远来看'], example: '总而言之，唯有多管齐下，方能构建真正的优雅社会。' },
-        ],
-        idiomsAndProverbs: [
-          { phrase: '举手之劳', meaning: '轻而易举毫不费力', usageContext: '形容随手归还托盘与顺手关灯' },
-          { phrase: '潜移默化', meaning: '思想品德受感染无形改变', usageContext: '形容父母言传身教与校园风气熏陶' },
-          { phrase: '双管齐下', meaning: '两项措施并进配合', usageContext: '形容严格执法与宣传教育紧密结合' },
-        ],
-        singaporeTerms: [
-          { term: '小贩中心', properUsage: '规范华语称呼熟食中心，体现非遗文化' },
-          { term: '租赁组屋', properUsage: '新加坡公共住房关怀乐龄群体的语境' },
-        ],
-      },
+      pronunciationIssues: defaultPronunciationIssues,
+      corpusSuggestions: defaultCorpusSuggestions,
       initialTranscript,
       followUpQuestion,
       followUpTranscript,
       audioDurationSeconds,
       aiMetadata: {
-        engine: 'SEAB 华文口试考纲规则引擎 (高可用就绪模式)',
+        engine: `SEAB 华文口试考纲极速引擎 (${Date.now() - startTime}ms 零延迟响应)`,
         analysisFocus: '针对学生口语表达的逻辑严密性、新加坡本土真实生活例证及规范华语四声展开深度剖析',
       },
     };
 
+    evaluationCache.set(evalCacheKey, result);
     return res.json(result);
   } catch (err: any) {
     console.error('Error in /api/oral/evaluate:', err);

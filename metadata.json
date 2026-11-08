@@ -1,6 +1,6 @@
 {
-  "name": "狮城口试宝 (O-Level Chinese Oral AI Sparring)",
-  "description": "新加坡中学生O水准华文口试AI陪练应用，聚焦录像口试与会话，具备短片视听、智能追问、三项核心反馈、发音纠错、评分提升及每周进步追踪与跨平台移动端发布包。",
+  "name": "OralAce",
+  "description": "your AI Chinese Oral Coach",
   "requestFramePermissions": [
     "camera",
     "microphone"

@@ -1,12 +1,14 @@
 import React from 'react';
 import { EvaluationResult } from '../types/oral';
 import { Award, Check, TrendingUp, BarChart3, HelpCircle } from 'lucide-react';
+import { useLanguage } from '../context/LanguageContext';
 
 interface RubricScoreCardProps {
   evaluation: EvaluationResult;
 }
 
 export const RubricScoreCard: React.FC<RubricScoreCardProps> = ({ evaluation }) => {
+  const { t } = useLanguage();
   const { totalScore, band, rubric } = evaluation;
 
   // Band styling
@@ -18,23 +20,27 @@ export const RubricScoreCard: React.FC<RubricScoreCardProps> = ({ evaluation }) 
   };
 
   const dimensions = [
-    { key: 'content', title: '思想内容', data: rubric.content, color: 'bg-indigo-500' },
-    { key: 'expression', title: '表达与结构', data: rubric.expression, color: 'bg-blue-500' },
-    { key: 'vocabulary', title: '词汇与语料', data: rubric.vocabulary, color: 'bg-emerald-500' },
-    { key: 'pronunciation', title: '语音与发音', data: rubric.pronunciation, color: 'bg-rose-500' },
+    { key: 'content', title: t('Content & Ideas (思想内容)', '思想内容'), data: rubric.content, color: 'bg-indigo-500' },
+    { key: 'expression', title: t('Structure & Expression (表达结构)', '表达与结构'), data: rubric.expression, color: 'bg-blue-500' },
+    { key: 'vocabulary', title: t('Vocabulary & Corpus (词汇语料)', '词汇与语料'), data: rubric.vocabulary, color: 'bg-emerald-500' },
+    { key: 'pronunciation', title: t('Pronunciation & Tone (语音发音)', '语音与发音'), data: rubric.pronunciation, color: 'bg-rose-500' },
   ];
 
   return (
     <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-5 sm:p-6">
-      {/* Top Total Score & Band Row */}
+      {/* Top Reference Score & Tier Row */}
       <div className="flex flex-wrap items-center justify-between gap-4 pb-5 border-b border-gray-100">
         <div>
           <span className="text-xs font-bold text-gray-500 uppercase tracking-wider block">
-            新加坡教育部 SEAB 评分标准
+            {t(
+              'Self-Practice Reference Evaluation (For Study Reference Only)',
+              '口语练习自测参考评估（仅供日常练习参考，非官方评分）'
+            )}
           </span>
           <div className="flex items-center space-x-3 mt-1">
             <h3 className="text-2xl sm:text-3xl font-black text-gray-900">
-              综合得分：<span className="text-red-600">{totalScore}</span>
+              {t('Reference Score: ', '练习参考分：')}
+              <span className="text-red-600">{totalScore}</span>
               <span className="text-base text-gray-400 font-normal"> / 50</span>
             </h3>
             <span className={`text-xs sm:text-sm font-bold px-3 py-1 rounded-full shadow-xs ${getBandBadgeClass()}`}>
@@ -44,8 +50,10 @@ export const RubricScoreCard: React.FC<RubricScoreCardProps> = ({ evaluation }) 
         </div>
 
         <div className="text-right text-xs text-gray-500 hidden sm:block">
-          <p>O-Level 华文试卷三（口试录像与会话）</p>
-          <p className="text-emerald-700 font-medium">目标区间：Band 1 (42分及以上)</p>
+          <p>{t('Independent AI Practice Reference · Advisory Suggestions Only', 'AI 陪练自测参考 · 旨在提供表达启发与改进建议')}</p>
+          <p className="text-emerald-700 font-medium">
+            {t('Practice Goal Reference: Tier 1 (42+ pts)', '练习进步参考目标：42分及以上')}
+          </p>
         </div>
       </div>
 
@@ -97,3 +105,4 @@ export const RubricScoreCard: React.FC<RubricScoreCardProps> = ({ evaluation }) 
     </div>
   );
 };
+

@@ -41,6 +41,41 @@ export interface OralTopic {
     highlights: string[];
   };
   similarTopicId?: string; // For "同类题再练一次"
+  realVideoUrl?: string; // Optional real MP4 video clip (e.g., '/video/seat-land.mp4')
+}
+
+export type DifficultyLevel = 'basic' | 'advanced';
+
+export interface ConsentRecord {
+  version: string; // e.g. 'trial-notice-2026-11-08'
+  ageBand: 'adult' | 'u18-parent';
+  consentedAt: string;
+}
+
+export interface CharacterTimestampSegment {
+  char: string;
+  startSec: number;
+  endSec: number;
+  durationSec: number;
+}
+
+export interface PhonemeGopSegment {
+  char: string;
+  phone: string;
+  gop: number; // log-posterior mean, e.g., -1.2 to -7.8
+  frames: number;
+  flagged: boolean; // gop < -5.0
+}
+
+export interface AcousticGopFluencyTelemetry {
+  totalDurationSec: number;
+  speechRateCharsPerSec: number;
+  pauseCountOver300ms: number;
+  longestPauseSec: number;
+  networkRequestCount: 0; // On-device analysis: 0 network requests
+  analysisTimeMs: number;
+  characterSegments: CharacterTimestampSegment[];
+  phonemeGopSegments: PhonemeGopSegment[];
 }
 
 export interface PronunciationIssue {
@@ -105,6 +140,53 @@ export interface CorpusSuggestion {
   }[];
 }
 
+export interface ReadingAloudPassage {
+  topicId: string;
+  titleZh: string;
+  titleEn: string;
+  passage: string;
+  segmentedRhythm: string;
+  focusTraps: {
+    word: string;
+    pinyin: string;
+    noteZh: string;
+    noteEn: string;
+  }[];
+}
+
+export interface ReadingAloudEvaluation {
+  score: number; // 0 - 10
+  maxScore: 10;
+  accuracyPercent: number; // 0 - 100
+  fluencyRating: 'Band 1 (流利自然)' | 'Band 2 (平稳清晰)' | 'Band 3 (偶有卡顿)' | 'Band 4 (需加强)';
+  durationSeconds: number;
+  spokenTranscript: string;
+  matchedCharsCount: number;
+  totalCharsCount: number;
+  missedWords: string[];
+  feedbackZh: string;
+  feedbackEn: string;
+  acousticTelemetry?: AcousticGopFluencyTelemetry;
+}
+
+export interface OridScratchpadNotes {
+  observation: string; // O: 录像见闻与细节
+  reflection: string;  // R: 个人感受与触动
+  interpretation: string; // I: 深层原因与多角度剖析
+  decision: string;    // D: 家庭/学校/政府建议
+}
+
+export interface FollowUpExchange {
+  round: 1 | 2 | 3;
+  tierLabelZh: string;
+  tierLabelEn: string;
+  question: string;
+  intent: string;
+  tip: string;
+  candidateAnswer: string;
+  durationSeconds: number;
+}
+
 export interface EvaluationResult {
   id: string;
   topicId: string;
@@ -124,6 +206,12 @@ export interface EvaluationResult {
   initialTranscript: string;
   followUpQuestion?: string;
   followUpTranscript?: string;
+  followUpExchanges?: FollowUpExchange[];
+  readingAloudScore?: number; // 0 - 10 (Part 1 Reading Aloud)
+  readingAloudEvaluation?: ReadingAloudEvaluation;
+  oridNotes?: OridScratchpadNotes;
+  acousticTelemetry?: AcousticGopFluencyTelemetry;
+  difficultyLevel?: DifficultyLevel;
   audioDurationSeconds: number;
   isRetest?: boolean;
   aiMetadata?: {

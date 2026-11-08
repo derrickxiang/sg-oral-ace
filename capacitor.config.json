@@ -1,0 +1,15 @@
+{
+  "appId": "sg.oralace.app",
+  "appName": "OralAce",
+  "webDir": "dist",
+  "bundledWebRuntime": false,
+  "server": {
+    "androidScheme": "https"
+  },
+  "plugins": {
+    "SplashScreen": {
+      "launchShowDuration": 1800,
+      "backgroundColor": "#072B2E"
+    }
+  }
+}

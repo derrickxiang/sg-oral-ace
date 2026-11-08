@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { CorpusSuggestion } from '../types/oral';
 import { BookOpen, Sparkles, Copy, Check, GitMerge, FileText } from 'lucide-react';
+import { useLanguage } from '../context/LanguageContext';
 
 interface CorpusCardProps {
   corpusSuggestions: CorpusSuggestion;
@@ -9,8 +10,8 @@ interface CorpusCardProps {
 
 export const CorpusCard: React.FC<CorpusCardProps> = ({
   corpusSuggestions,
-  onSavePhrase,
 }) => {
+  const { t } = useLanguage();
   const [copiedText, setCopiedText] = useState<string | null>(null);
 
   const copyToClipboard = (text: string) => {
@@ -24,20 +25,23 @@ export const CorpusCard: React.FC<CorpusCardProps> = ({
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-gray-100 pb-3 mb-4">
         <div className="flex items-center space-x-2">
           <div className="w-8 h-8 rounded-lg bg-indigo-100 text-indigo-700 flex items-center justify-center font-bold text-sm">
-            库
+            {t('Lex', '库')}
           </div>
           <div>
             <h3 className="font-bold text-gray-900 text-base sm:text-lg">
-              语料库深度分析与高分逻辑提升
+              {t('Deep Corpus Analysis & Logic Connectives', '语料库深度分析与高分逻辑提升')}
             </h3>
             <p className="text-xs text-gray-500">
-              结合新加坡语料库，强化答题逻辑链条，告别单一干瘪的平铺直叙
+              {t(
+                'Strengthen logical flow with Singapore O-Level vocabulary & discourse markers',
+                '结合新加坡语料库，强化答题逻辑链条，告别单一干瘪的平铺直叙'
+              )}
             </p>
           </div>
         </div>
 
         <span className="text-xs bg-indigo-50 text-indigo-700 font-semibold px-2.5 py-1 rounded-full border border-indigo-200">
-          高分语料库精选
+          {t('Curated O-Level Corpus', '高分语料库精选')}
         </span>
       </div>
 
@@ -46,7 +50,12 @@ export const CorpusCard: React.FC<CorpusCardProps> = ({
         <div className="space-y-3">
           <h4 className="text-xs font-bold text-gray-900 flex items-center space-x-1.5 uppercase tracking-wide">
             <GitMerge className="w-4 h-4 text-indigo-600" />
-            <span>高频逻辑衔接词推荐（递进 · 因果 · 转折）：</span>
+            <span>
+              {t(
+                'Recommended Logical Connectives (Progressive · Causal · Contrastive):',
+                '高频逻辑衔接词推荐（递进 · 因果 · 转折）：'
+              )}
+            </span>
           </h4>
 
           <div className="space-y-2.5">
@@ -54,7 +63,7 @@ export const CorpusCard: React.FC<CorpusCardProps> = ({
               <div key={idx} className="bg-indigo-50/50 border border-indigo-100 rounded-xl p-3">
                 <div className="flex items-center justify-between mb-1.5">
                   <span className="text-[11px] font-bold text-indigo-800 bg-indigo-100 px-2 py-0.5 rounded">
-                    {conn.type}衔接
+                    {conn.type} {t('Connective', '衔接')}
                   </span>
                   <div className="flex space-x-1">
                     {conn.words.map((w, i) => (
@@ -69,7 +78,7 @@ export const CorpusCard: React.FC<CorpusCardProps> = ({
                   <button
                     onClick={() => copyToClipboard(conn.example)}
                     className="ml-2 text-gray-400 hover:text-indigo-600 p-1 shrink-0"
-                    title="复制例句"
+                    title={t('Copy example sentence', '复制例句')}
                   >
                     {copiedText === conn.example ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
                   </button>
@@ -84,7 +93,9 @@ export const CorpusCard: React.FC<CorpusCardProps> = ({
           <div>
             <h4 className="text-xs font-bold text-gray-900 flex items-center space-x-1.5 uppercase tracking-wide mb-2.5">
               <Sparkles className="w-4 h-4 text-amber-500" />
-              <span>口试成语锦囊（提分必背）：</span>
+              <span>
+                {t('High-Scoring Idioms & Proverbs (成语锦囊):', '口试成语锦囊（提分必背）：')}
+              </span>
             </h4>
 
             <div className="space-y-2">
@@ -99,7 +110,8 @@ export const CorpusCard: React.FC<CorpusCardProps> = ({
                     </span>
                   </div>
                   <p className="text-xs text-gray-600 mt-1">
-                    释义：{item.meaning}
+                    {t('Meaning: ', '释义：')}
+                    {item.meaning}
                   </p>
                 </div>
               ))}
@@ -110,7 +122,9 @@ export const CorpusCard: React.FC<CorpusCardProps> = ({
             <div>
               <h4 className="text-xs font-bold text-gray-900 flex items-center space-x-1.5 uppercase tracking-wide mb-2">
                 <FileText className="w-4 h-4 text-emerald-600" />
-                <span>新加坡本地特色规范用语：</span>
+                <span>
+                  {t('Singapore Context Standard Chinese Terms:', '新加坡本地特色规范用语：')}
+                </span>
               </h4>
               <div className="space-y-1.5">
                 {corpusSuggestions.singaporeTerms.map((st, i) => (
@@ -127,3 +141,4 @@ export const CorpusCard: React.FC<CorpusCardProps> = ({
     </div>
   );
 };
+

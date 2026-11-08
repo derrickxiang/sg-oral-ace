@@ -1,5 +1,7 @@
 import React from 'react';
-import { Award, BookOpen, Flame, History, Smartphone, Volume2 } from 'lucide-react';
+import { Globe, Sparkles, Smartphone, User as UserIcon } from 'lucide-react';
+import { useLanguage } from '../context/LanguageContext';
+import { usePWAInstall } from '../hooks/usePWAInstall';
 
 interface HeaderProps {
   activeTab: 'practice' | 'progress' | 'corpus' | 'mobile_export';
@@ -7,114 +9,164 @@ interface HeaderProps {
   weeklyStreak: number;
   totalPractices: number;
   onOpenAiInfo?: () => void;
+  isTrialMode?: boolean;
+  trialSessionsRemaining?: number;
+  userDisplayName?: string | null;
+  onOpenTrialModal?: (section?: 'overview' | 'pricing' | 'mobile_install') => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
   activeTab,
   setActiveTab,
-  weeklyStreak,
-  totalPractices,
   onOpenAiInfo,
+  isTrialMode = true,
+  trialSessionsRemaining = 3,
+  userDisplayName,
+  onOpenTrialModal,
 }) => {
+  const { lang, toggleLang, t } = useLanguage();
+  const { isInstallable, isInstalled, install } = usePWAInstall();
+
   const tabs = [
-    { id: 'practice' as const, label: '口试陪练', icon: BookOpen },
-    { id: 'progress' as const, label: '每周进步', icon: History },
-    { id: 'corpus' as const, label: '发音语料', icon: Volume2 },
-    { id: 'mobile_export' as const, label: '移动发布包', icon: Smartphone },
+    { id: 'practice' as const, label: t('Oral Practice', '口试陪练') },
+    { id: 'progress' as const, label: t('Weekly Progress', '每周进步') },
+    { id: 'corpus' as const, label: t('Pronunciation & SG Corpus', '发音与本土词库') },
+    { id: 'mobile_export' as const, label: t('Download Mobile App', '下载手机应用') },
   ];
 
-  return (
-    <header className="sticky top-0 z-40 bg-white/95 backdrop-blur border-b border-red-100 shadow-xs">
-      <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8">
-        {/* Top Bar */}
-        <div className="flex items-center justify-between h-14 sm:h-16">
-          {/* Brand */}
-          <div
-            className="flex items-center space-x-2.5 cursor-pointer shrink-0"
-            onClick={() => setActiveTab('practice')}
-          >
-            <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl bg-gradient-to-tr from-red-600 to-rose-500 flex items-center justify-center text-white shadow-md shadow-red-200">
-              <span className="font-bold text-base sm:text-lg tracking-wider">狮</span>
-            </div>
-            <div>
-              <div className="flex items-center space-x-1.5">
-                <span className="font-bold text-gray-900 text-base sm:text-lg tracking-tight whitespace-nowrap">
-                  狮城口试宝
-                </span>
-                <span className="bg-red-50 text-red-700 text-[10px] sm:text-xs font-semibold px-2 py-0.5 rounded-full border border-red-200 whitespace-nowrap">
-                  O-Level
-                </span>
-              </div>
-              <p className="text-[11px] text-gray-500 hidden sm:block">
-                新加坡中学会考华文口试 · 录像说话与深度追问陪练
-              </p>
-            </div>
-          </div>
+  const handleMobileAppClick = async () => {
+    if (isInstallable && !isInstalled) {
+      const accepted = await install();
+      if (accepted) return;
+    }
+    setActiveTab('mobile_export');
+  };
 
-          {/* Desktop Navigation Tabs */}
-          <nav className="hidden md:flex space-x-1.5">
+  return (
+    <header className="sticky top-0 z-40 w-full bg-[#072B2E] text-white border-b border-teal-800/80 shadow-xs overflow-x-clip">
+      <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8">
+        <div className="flex flex-wrap items-center justify-between gap-2 sm:gap-3 min-h-14 py-1.5">
+          {/* Zone 1: Clean single-line Brand Wordmark */}
+          <button
+            type="button"
+            onClick={() => setActiveTab('practice')}
+            className="flex items-center gap-2 text-base sm:text-lg font-bold tracking-tight text-white whitespace-nowrap shrink-0 cursor-pointer focus-visible:outline-2 focus-visible:outline-emerald-400"
+          >
+            <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 shrink-0" />
+            <span>OralAce</span>
+            <span className="hidden lg:inline xl:hidden 2xl:inline text-xs font-normal text-emerald-300/90 border-l border-teal-700 pl-2">
+              {t('AI Chinese Oral Practice Coach', '新加坡华文口语陪练助手')}
+            </span>
+          </button>
+
+          {/* Zone 2: Clean single-line Typography Navigation Links (xl+ wide viewports) */}
+          <nav className="hidden xl:flex items-center gap-4 2xl:gap-6 h-11">
             {tabs.map((tab) => {
-              const Icon = tab.icon;
               const isActive = activeTab === tab.id;
               return (
                 <button
                   key={tab.id}
+                  type="button"
                   onClick={() => setActiveTab(tab.id)}
-                  className={`flex items-center space-x-1.5 px-3 py-2 rounded-xl text-xs sm:text-sm font-medium transition-all cursor-pointer ${
+                  className={`relative h-full inline-flex items-center text-xs 2xl:text-sm whitespace-nowrap shrink-0 transition-colors cursor-pointer ${
                     isActive
-                      ? 'bg-red-600 text-white shadow-xs'
-                      : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
+                      ? 'text-emerald-300 font-semibold'
+                      : 'text-slate-300 hover:text-white font-medium'
                   }`}
                 >
-                  <Icon className="w-4 h-4" />
                   <span>{tab.label}</span>
+                  {isActive && (
+                    <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-emerald-400 rounded-full" />
+                  )}
                 </button>
               );
             })}
           </nav>
 
-          {/* Badges */}
-          <div className="flex items-center space-x-2">
-            {/* AI Engine Status Button */}
-            {onOpenAiInfo && (
+          {/* Zone 3: Concise Utility & Account / Install Actions */}
+          <div className="flex flex-wrap items-center justify-end gap-1.5 sm:gap-2 min-w-0">
+            {/* In-App PWA Install / Mobile Download Button */}
+            <button
+              type="button"
+              onClick={handleMobileAppClick}
+              className="inline-flex items-center gap-1.5 text-xs font-semibold px-2 sm:px-2.5 py-1.5 rounded-lg border border-emerald-500/40 bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-200 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+              title={t('Download & Install OralAce on iPhone / Android', '下载并安装 OralAce 到手机桌面')}
+            >
+              <Smartphone className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+              <span className="hidden sm:inline">
+                {isInstallable ? t('Install App', '装入手机') : t('Mobile App', '手机应用')}
+              </span>
+            </button>
+
+            {/* User Account / Email Registration & Topic Unlock Button */}
+            {onOpenTrialModal && (
               <button
-                onClick={onOpenAiInfo}
-                className="flex items-center space-x-1.5 bg-purple-50 hover:bg-purple-100 text-purple-800 border border-purple-200 px-2.5 py-1 rounded-full text-[11px] sm:text-xs font-semibold transition-colors cursor-pointer"
-                title="查看本应用 AI 考官模型架构与应用细节"
+                type="button"
+                onClick={() => onOpenTrialModal('overview')}
+                className="inline-flex items-center gap-1 sm:gap-1.5 text-xs font-semibold px-2 sm:px-2.5 py-1.5 rounded-lg border border-teal-700 bg-teal-900/80 hover:bg-teal-800 text-white transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+                title={t('Email Registration & Unlock All 20 Topics', '电子邮箱注册登录 · 解锁全部 20 套考题')}
               >
-                <span className="w-2 h-2 rounded-full bg-purple-600 animate-pulse" />
-                <span>AI引擎剖析</span>
+                {userDisplayName ? (
+                  <UserIcon className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                ) : (
+                  <Sparkles className="w-3.5 h-3.5 text-amber-300 shrink-0" />
+                )}
+                <span className="hidden sm:inline">
+                  {userDisplayName
+                    ? `${userDisplayName.split(' ')[0]} · ${t('All 20 Unlocked', '20题已解锁')}`
+                    : isTrialMode
+                    ? t('Email Register (2/20 Free)', '邮箱注册 (免费2题)')
+                    : t('All 20 Topics Unlocked', '全部20题已解锁')}
+                </span>
+                <span className="sm:hidden">
+                  {userDisplayName
+                    ? userDisplayName.split(' ')[0].slice(0, 8)
+                    : isTrialMode
+                    ? t('Register (2/20)', '邮箱注册')
+                    : t('Unlocked', '已解锁')}
+                </span>
               </button>
             )}
 
-            <div className="flex items-center space-x-1 bg-amber-50 text-amber-800 border border-amber-200 px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-full text-[11px] sm:text-xs font-semibold">
-              <Flame className="w-3.5 h-3.5 text-amber-500 fill-amber-500" />
-              <span>{weeklyStreak}天打卡</span>
-            </div>
-            <div className="hidden sm:flex items-center space-x-1 bg-emerald-50 text-emerald-800 border border-emerald-200 px-2.5 py-1 rounded-full text-xs font-semibold">
-              <Award className="w-3.5 h-3.5 text-emerald-600" />
-              <span>已练 {totalPractices} 题</span>
-            </div>
+            {onOpenAiInfo && (
+              <button
+                type="button"
+                onClick={onOpenAiInfo}
+                className="hidden md:inline-flex text-xs font-medium text-slate-300 hover:text-white transition-colors whitespace-nowrap shrink-0 cursor-pointer px-2 py-1.5 rounded-md hover:bg-teal-900"
+              >
+                {t('AI Architecture', 'AI 架构')}
+              </button>
+            )}
+
+            <button
+              type="button"
+              onClick={toggleLang}
+              aria-label={t('Switch to Chinese', '切换为英文')}
+              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-bold transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+              title={t('Switch UI language to Chinese (切换中文)', 'Switch UI language to English')}
+            >
+              <Globe className="w-3.5 h-3.5 text-slate-900 shrink-0" />
+              <span>{lang === 'en' ? '中文' : 'EN'}</span>
+            </button>
           </div>
         </div>
 
-        {/* Mobile Navigation Tab Bar */}
-        <div className="md:hidden flex items-center justify-between pb-2 border-t border-gray-100 pt-1.5">
+        {/* Sub-Row Navigation Bar for Mobile, Tablet & Split-Screen Desktop (<1280px) */}
+        <div className="xl:hidden flex items-center justify-start sm:justify-between border-t border-teal-800/80 py-1.5 gap-1.5 overflow-x-auto no-scrollbar">
           {tabs.map((tab) => {
-            const Icon = tab.icon;
             const isActive = activeTab === tab.id;
             return (
               <button
                 key={tab.id}
+                type="button"
                 onClick={() => setActiveTab(tab.id)}
-                className={`flex-1 flex flex-col items-center py-1 rounded-lg text-[11px] font-medium transition-all cursor-pointer ${
+                className={`px-3 py-1.5 rounded-md text-xs whitespace-nowrap shrink-0 transition-colors cursor-pointer ${
                   isActive
-                    ? 'text-red-600 font-bold bg-red-50/60'
-                    : 'text-gray-500 hover:text-gray-800'
+                    ? 'bg-emerald-500 text-slate-950 font-bold'
+                    : 'text-slate-300 hover:text-white font-medium'
                 }`}
               >
-                <Icon className={`w-4 h-4 mb-0.5 ${isActive ? 'text-red-600' : 'text-gray-400'}`} />
-                <span>{tab.label}</span>
+                {tab.label}
               </button>
             );
           })}

@@ -13,6 +13,7 @@ import {
   X,
   Zap,
 } from 'lucide-react';
+import { useLanguage } from '../context/LanguageContext';
 
 interface RetestCompareModalProps {
   initialResult: EvaluationResult;
@@ -29,10 +30,14 @@ export const RetestCompareModal: React.FC<RetestCompareModalProps> = ({
   onClose,
   onSaveRetestToHistory,
 }) => {
+  const { t, getTopicDisplay } = useLanguage();
   const [step, setStep] = useState<'record' | 'comparison'>('record');
   const [selectedTopic, setSelectedTopic] = useState<OralTopic>(currentTopic);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [comparisonData, setComparisonData] = useState<ComparisonResult | null>(null);
+
+  const currentTopicDisplay = getTopicDisplay(currentTopic);
+  const similarTopicDisplay = similarTopic ? getTopicDisplay(similarTopic) : undefined;
 
   const handleRetestSubmit = async (
     transcript: string,
@@ -121,10 +126,15 @@ export const RetestCompareModal: React.FC<RetestCompareModalProps> = ({
             </div>
             <div>
               <h3 className="font-bold text-gray-900 text-lg">
-                {step === 'record' ? '强化进阶：同类题/同话题再练一次' : '二次作答前后对比分析'}
+                {step === 'record'
+                  ? t('Practice Again: Same or Similar Topic', '强化进阶：同类题/同话题再练一次')
+                  : t('Before vs After Attempt Comparison', '二次作答前后对比分析')}
               </h3>
               <p className="text-xs text-gray-500">
-                吸收前次考官的三项反馈，直观见证论点、逻辑与词汇的飞跃
+                {t(
+                  'Apply your AI Chinese Oral Coach’s triple feedback and see your progress in real time',
+                  '吸收前次考官的三项反馈，直观见证论点、逻辑与词汇的飞跃'
+                )}
               </p>
             </div>
           </div>
@@ -144,7 +154,7 @@ export const RetestCompareModal: React.FC<RetestCompareModalProps> = ({
               {/* Topic selection between same topic and sibling topic */}
               <div className="bg-gray-50 p-4 rounded-2xl border border-gray-200">
                 <span className="text-xs font-bold text-gray-500 uppercase tracking-wide block mb-2">
-                  选择本次复练题型：
+                  {t('Select Retest Mode:', '选择本次复练题型：')}
                 </span>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <button
@@ -156,17 +166,22 @@ export const RetestCompareModal: React.FC<RetestCompareModalProps> = ({
                     }`}
                   >
                     <div className="flex items-center justify-between mb-1">
-                      <span className="font-bold text-sm">【原题重练】{currentTopic.title}</span>
+                      <span className="font-bold text-sm">
+                        {t(`[Same Topic] ${currentTopicDisplay.title}`, `【原题重练】${currentTopic.title}`)}
+                      </span>
                       <span className="text-[11px] bg-red-100 text-red-700 px-2 py-0.5 rounded font-semibold">
-                        巩固反思
+                        {t('Refine', '巩固反思')}
                       </span>
                     </div>
                     <p className="text-xs text-gray-500 line-clamp-2">
-                      运用刚才考官给出的“下一次怎么改”建议，重新润色答题框架与个人故事。
+                      {t(
+                        'Apply the "How to Improve Next Time" tips to polish your ORID structure and personal story.',
+                        '运用刚才考官给出的“下一次怎么改”建议，重新润色答题框架与个人故事。'
+                      )}
                     </p>
                   </button>
 
-                  {similarTopic && (
+                  {similarTopic && similarTopicDisplay && (
                     <button
                       onClick={() => setSelectedTopic(similarTopic)}
                       className={`p-3.5 rounded-xl text-left border transition-all cursor-pointer ${
@@ -176,13 +191,18 @@ export const RetestCompareModal: React.FC<RetestCompareModalProps> = ({
                       }`}
                     >
                       <div className="flex items-center justify-between mb-1">
-                        <span className="font-bold text-sm">【同类新题】{similarTopic.title}</span>
+                        <span className="font-bold text-sm">
+                          {t(`[Similar Topic] ${similarTopicDisplay.title}`, `【同类新题】${similarTopic.title}`)}
+                        </span>
                         <span className="text-[11px] bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded font-semibold">
-                          举一反三
+                          {t('Transfer', '举一反三')}
                         </span>
                       </div>
                       <p className="text-xs text-gray-500 line-clamp-2">
-                        切换至相近主题短片考题，检验答题思维框架的迁移应用能力。
+                        {t(
+                          'Switch to a related theme to test how well you transfer your argument framework.',
+                          '切换至相近主题短片考题，检验答题思维框架的迁移应用能力。'
+                        )}
                       </p>
                     </button>
                   )}
@@ -194,12 +214,27 @@ export const RetestCompareModal: React.FC<RetestCompareModalProps> = ({
                 <Sparkles className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
                 <div>
                   <strong className="font-bold text-amber-950 block mb-1">
-                    本次再练重点攻克方向：
+                    {t('Key Focus Areas for This Retest:', '本次再练重点攻克方向：')}
                   </strong>
                   <ul className="list-disc list-inside space-y-0.5 text-amber-800">
-                    <li>弥补缺少理由的短板：增加至少一个具体生活见闻（如“有一次我在……”）</li>
-                    <li>多角度切入：兼顾家庭熏陶、学校教育、社会制度等多个维度</li>
-                    <li>纠正易错字发音：注意“角色(jué)”、“塑料(sù)”、“提供(gōng)”的标准四声</li>
+                    <li>
+                      {t(
+                        'Fill missing reasons: Include at least one real-life personal anecdote (e.g., "有一次我在……")',
+                        '弥补缺少理由的短板：增加至少一个具体生活见闻（如“有一次我在……”）'
+                      )}
+                    </li>
+                    <li>
+                      {t(
+                        'Multi-angle perspectives: Cover family upbringing, school education, and community policy',
+                        '多角度切入：兼顾家庭熏陶、学校教育、社会制度等多个维度'
+                      )}
+                    </li>
+                    <li>
+                      {t(
+                        'Accurate tones: Watch out for polyphonic words like 角色(jué), 塑料(sù), 提供(gōng)',
+                        '纠正易错字发音：注意“角色(jué)”、“塑料(sù)”、“提供(gōng)”的标准四声'
+                      )}
+                    </li>
                   </ul>
                 </div>
               </div>
@@ -207,14 +242,22 @@ export const RetestCompareModal: React.FC<RetestCompareModalProps> = ({
               {/* Practice Recorder */}
               <div>
                 <h4 className="text-sm font-bold text-gray-900 mb-2">
-                  录音作答（考题：{selectedTopic.primaryQuestion}）：
+                  {t('Record 2nd Attempt (Prompt: ', '录音作答（考题：')}
+                  {selectedTopic.primaryQuestion}
+                  {t('):', '）：')}
                 </h4>
                 <VoiceRecorder
                   onTranscriptReady={handleRetestSubmit}
                   isLoading={isSubmitting}
                   sampleAnswer="看了这个录像短片，我深有感触。我认为保持公共场所整洁不仅体现了公民素养，更关乎对年迈清洁工的尊重与体谅。之所以部分人仍不愿主动归还托盘，其根本原因在于习惯了依赖他人，缺乏同理心。以我身边的经历为例，有一次我和同学在小贩中心用餐后主动擦拭桌子，邻桌的阿婆微笑着向我们道谢，这让我深刻体会到举手之劳的温暖。因此，唯有学校教育与法律规范双管齐下，父母言传身教，我们才能真正建设充满包容度的优雅狮城。"
-                  placeholderText="请点击录音开始第二次作答。运用总-分-总架构，融入个人实例与高分衔接词……"
-                  submitButtonText="提交二次作答，生成前后对比分析"
+                  placeholderText={t(
+                    'Click the microphone to record your 2nd attempt in Chinese using the ORID structure, personal anecdote, and logical connectives…',
+                    '请点击录音开始第二次作答。运用总-分-总架构，融入个人实例与高分衔接词……'
+                  )}
+                  submitButtonText={t(
+                    'Submit 2nd Attempt & Compare Before vs After',
+                    '提交二次作答，生成前后对比分析'
+                  )}
                 />
               </div>
             </div>
@@ -226,15 +269,15 @@ export const RetestCompareModal: React.FC<RetestCompareModalProps> = ({
                 <div className="bg-gradient-to-r from-red-600 via-rose-600 to-amber-600 text-white rounded-2xl p-6 shadow-lg flex flex-wrap items-center justify-between gap-4">
                   <div>
                     <span className="text-xs font-semibold text-rose-200 uppercase tracking-wider block mb-1">
-                      前后两次练习成果比对
+                      {t('Before vs After Performance Comparison', '前后两次练习成果比对')}
                     </span>
                     <h4 className="text-2xl sm:text-3xl font-black">
-                      综合成绩提升：
+                      {t('Score Improvement: ', '综合成绩提升：')}
                       <span className="text-yellow-300 ml-1">
                         {comparisonData.scoreDifference >= 0
                           ? `+${comparisonData.scoreDifference}`
                           : comparisonData.scoreDifference}{' '}
-                        分
+                        {t('pts', '分')}
                       </span>
                     </h4>
                     <p className="text-xs sm:text-sm text-rose-100 mt-2 max-w-xl leading-relaxed">
@@ -244,14 +287,14 @@ export const RetestCompareModal: React.FC<RetestCompareModalProps> = ({
 
                   <div className="flex items-center space-x-3 bg-black/20 backdrop-blur-sm p-4 rounded-xl border border-white/20">
                     <div className="text-center">
-                      <span className="text-[11px] text-gray-300 block">前次得分</span>
+                      <span className="text-[11px] text-gray-300 block">{t('Round 1', '前次得分')}</span>
                       <span className="text-2xl font-bold font-mono">
                         {comparisonData.round1.totalScore}
                       </span>
                     </div>
                     <ArrowRight className="w-5 h-5 text-yellow-300" />
                     <div className="text-center">
-                      <span className="text-[11px] text-yellow-200 block">本次得分</span>
+                      <span className="text-[11px] text-yellow-200 block">{t('Round 2', '本次得分')}</span>
                       <span className="text-3xl font-black font-mono text-yellow-300">
                         {comparisonData.round2.totalScore}
                       </span>
@@ -263,25 +306,25 @@ export const RetestCompareModal: React.FC<RetestCompareModalProps> = ({
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                   {[
                     {
-                      label: '思想内容',
+                      label: t('Content & Ideas', '思想内容'),
                       r1: comparisonData.round1.rubric.content.score,
                       r2: comparisonData.round2.rubric.content.score,
                       max: 15,
                     },
                     {
-                      label: '表达与结构',
+                      label: t('Expression', '表达与结构'),
                       r1: comparisonData.round1.rubric.expression.score,
                       r2: comparisonData.round2.rubric.expression.score,
                       max: 15,
                     },
                     {
-                      label: '词汇与语料',
+                      label: t('Vocabulary', '词汇与语料'),
                       r1: comparisonData.round1.rubric.vocabulary.score,
                       r2: comparisonData.round2.rubric.vocabulary.score,
                       max: 10,
                     },
                     {
-                      label: '语音发音',
+                      label: t('Pronunciation', '语音发音'),
                       r1: comparisonData.round1.rubric.pronunciation.score,
                       r2: comparisonData.round2.rubric.pronunciation.score,
                       max: 10,
@@ -308,7 +351,7 @@ export const RetestCompareModal: React.FC<RetestCompareModalProps> = ({
                               : 'bg-rose-100 text-rose-800'
                           }`}
                         >
-                          {diff > 0 ? `+${diff} 分` : diff === 0 ? '持平' : `${diff} 分`}
+                          {diff > 0 ? `+${diff} ${t('pts', '分')}` : diff === 0 ? t('Same', '持平') : `${diff} ${t('pts', '分')}`}
                         </span>
                       </div>
                     );
@@ -320,7 +363,7 @@ export const RetestCompareModal: React.FC<RetestCompareModalProps> = ({
                   <div className="bg-emerald-50/70 border border-emerald-200 rounded-2xl p-4">
                     <h5 className="text-xs font-bold text-emerald-950 flex items-center space-x-1.5 mb-2.5">
                       <CheckCircle className="w-4 h-4 text-emerald-600" />
-                      <span>思想与论点拓展突破：</span>
+                      <span>{t('Content & Argument Expansion:', '思想与论点拓展突破：')}</span>
                     </h5>
                     <ul className="space-y-1.5 text-xs text-emerald-900">
                       {comparisonData.contentGains.map((gain, i) => (
@@ -335,7 +378,7 @@ export const RetestCompareModal: React.FC<RetestCompareModalProps> = ({
                   <div className="bg-blue-50/70 border border-blue-200 rounded-2xl p-4">
                     <h5 className="text-xs font-bold text-blue-950 flex items-center space-x-1.5 mb-2.5">
                       <Zap className="w-4 h-4 text-blue-600" />
-                      <span>语言逻辑与发音修正成效：</span>
+                      <span>{t('Logic & Pronunciation Improvements:', '语言逻辑与发音修正成效：')}</span>
                     </h5>
                     <ul className="space-y-1.5 text-xs text-blue-900">
                       {comparisonData.logicImprovements.concat(comparisonData.pronunciationFixes).map((item, i) => (
@@ -354,13 +397,13 @@ export const RetestCompareModal: React.FC<RetestCompareModalProps> = ({
                     onClick={() => setStep('record')}
                     className="px-4 py-2 text-xs font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-xl transition-colors cursor-pointer"
                   >
-                    再练一遍
+                    {t('Practice One More Time', '再练一遍')}
                   </button>
                   <button
                     onClick={onClose}
                     className="px-5 py-2 text-xs font-bold text-white bg-red-600 hover:bg-red-700 rounded-xl shadow-xs transition-colors cursor-pointer"
                   >
-                    完成并记录至每周进步档案
+                    {t('Done & Save to Weekly Progress', '完成并记录至每周进步档案')}
                   </button>
                 </div>
               </div>
@@ -371,3 +414,4 @@ export const RetestCompareModal: React.FC<RetestCompareModalProps> = ({
     </div>
   );
 };
+

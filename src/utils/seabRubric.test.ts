@@ -6,6 +6,15 @@ import {
   determineBand,
   generateTripleFeedback,
   compareAttempts,
+  getReadingAloudPassage,
+  evaluateReadingAloud,
+  getSuggestedOridKeywordsForTopic,
+  getProgressiveFollowUpQuestion,
+  computeClassCohortInsights,
+  generateClassReportCsv,
+  PRONUNCIATION_AND_POLICY_QUIZ_BANK,
+  computeOnDeviceAcousticGopTelemetry,
+  getDifficultyScaffolding,
 } from './seabRubric';
 import { EvaluationResult } from '../types/oral';
 
@@ -103,3 +112,82 @@ test('compareAttempts correctly compares before and after attempts', () => {
   assert.ok(comparison.examinerVerdict.includes('显著飞跃'));
   assert.ok(comparison.pronunciationFixes.some(f => f.includes('角色')));
 });
+
+test('ORAL_TOPICS contains 20 authentic Singapore O-Level topics including real video seat-land.mp4', async () => {
+  const { ORAL_TOPICS } = await import('../data/topics');
+  assert.equal(ORAL_TOPICS.length, 20);
+  const mrtTopic = ORAL_TOPICS.find(t => t.id === 'topic-public-transport-seat');
+  assert.ok(mrtTopic, 'Should include topic-public-transport-seat');
+  assert.equal(mrtTopic.realVideoUrl, '/video/seat-land.mp4');
+  for (const topic of ORAL_TOPICS) {
+    assert.equal(topic.scenes.length, 4, `Topic ${topic.id} should have 4 scenes`);
+  }
+});
+
+test('evaluateReadingAloud scores 10-mark Part 1 Reading Aloud accurately and computes acoustic GOP telemetry', () => {
+  const passage = getReadingAloudPassage('topic-hawker-tray');
+  assert.ok(passage.passage.length > 80);
+
+  const fullEval = evaluateReadingAloud(passage, passage.passage, 38);
+  assert.equal(fullEval.maxScore, 10);
+  assert.equal(fullEval.accuracyPercent, 100);
+  assert.equal(fullEval.score, 10);
+  assert.equal(fullEval.missedWords.length, 0);
+  assert.ok(fullEval.acousticTelemetry, 'Should attach acousticTelemetry');
+  assert.equal(fullEval.acousticTelemetry.networkRequestCount, 0);
+
+  const partialEval = evaluateReadingAloud(passage, '星期天中午，社区小贩中心里人山人海。', 12);
+  assert.ok(partialEval.score < fullEval.score);
+  assert.ok(partialEval.missedWords.length > 0);
+});
+
+test('computeOnDeviceAcousticGopTelemetry and getDifficultyScaffolding work deterministically', () => {
+  const telemetry = computeOnDeviceAcousticGopTelemetry(
+    '在地铁上每个乘客都扮演着重要角色，我们要提供帮助，减少塑料垃圾，潜移默化地体谅长辈。',
+    18
+  );
+  assert.equal(telemetry.networkRequestCount, 0);
+  assert.ok(telemetry.totalDurationSec >= 18);
+  assert.ok(telemetry.speechRateCharsPerSec > 0);
+  assert.ok(telemetry.pauseCountOver300ms >= 1);
+  assert.ok(telemetry.characterSegments.length > 0);
+  assert.ok(telemetry.phonemeGopSegments.some(p => p.flagged), 'Should flag low-confidence phonemes < -5.0');
+
+  const basic = getDifficultyScaffolding('公共交通上的礼让与体谅', 'basic');
+  const advanced = getDifficultyScaffolding('公共交通上的礼让与体谅', 'advanced');
+  assert.equal(basic.sentenceFrames.length, 4);
+  assert.equal(advanced.sentenceFrames.length, 3);
+  assert.notEqual(basic.badgeZh, advanced.badgeZh);
+});
+
+test('getSuggestedOridKeywordsForTopic, getProgressiveFollowUpQuestion, and computeClassCohortInsights work deterministically', () => {
+  const orid = getSuggestedOridKeywordsForTopic('topic-hawker-tray');
+  assert.ok(orid.observation.length > 5);
+  assert.ok(orid.decision.includes('VIA'));
+
+  const r1 = getProgressiveFollowUpQuestion('topic-hawker-tray', 1);
+  const r2 = getProgressiveFollowUpQuestion('topic-hawker-tray', 2);
+  const r3 = getProgressiveFollowUpQuestion('topic-hawker-tray', 3);
+  assert.notEqual(r1.question, r2.question);
+  assert.notEqual(r2.question, r3.question);
+
+  const cohort = computeClassCohortInsights('MOE-SEC4', []);
+  assert.equal(cohort.schoolCode, 'MOE-SEC4');
+  assert.ok(cohort.totalStudents >= 5);
+  const csv = generateClassReportCsv(cohort);
+  assert.ok(csv.includes('Student ID,Student Name'));
+  assert.ok(PRONUNCIATION_AND_POLICY_QUIZ_BANK.length >= 6);
+});
+
+test('FREE_TRIAL_TOPIC_COUNT is 2 and SEAB_THEMATIC_DOMAINS covers all 20 ORAL_TOPICS', async () => {
+  const { FREE_TRIAL_TOPIC_COUNT, SEAB_THEMATIC_DOMAINS } = await import('../components/TopicSelectorDeck');
+  const { ORAL_TOPICS } = await import('../data/topics');
+  assert.equal(FREE_TRIAL_TOPIC_COUNT, 2);
+  assert.equal(SEAB_THEMATIC_DOMAINS.length, 5);
+  const mappedIds = SEAB_THEMATIC_DOMAINS.flatMap((d) => d.topicIds);
+  assert.equal(mappedIds.length, 20);
+  for (const topic of ORAL_TOPICS) {
+    assert.ok(mappedIds.includes(topic.id), `Topic ${topic.id} should belong to a SEAB thematic domain`);
+  }
+});
+
