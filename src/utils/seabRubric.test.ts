@@ -15,6 +15,7 @@ import {
   PRONUNCIATION_AND_POLICY_QUIZ_BANK,
   computeOnDeviceAcousticGopTelemetry,
   getDifficultyScaffolding,
+  computeStudentAnalytics,
 } from './seabRubric';
 import { EvaluationResult } from '../types/oral';
 
@@ -113,9 +114,9 @@ test('compareAttempts correctly compares before and after attempts', () => {
   assert.ok(comparison.pronunciationFixes.some(f => f.includes('角色')));
 });
 
-test('ORAL_TOPICS contains 20 authentic Singapore O-Level topics including real video seat-land.mp4', async () => {
+test('ORAL_TOPICS contains 40 authentic Singapore O-Level topics including real video seat-land.mp4', async () => {
   const { ORAL_TOPICS } = await import('../data/topics');
-  assert.equal(ORAL_TOPICS.length, 20);
+  assert.equal(ORAL_TOPICS.length, 40);
   const mrtTopic = ORAL_TOPICS.find(t => t.id === 'topic-public-transport-seat');
   assert.ok(mrtTopic, 'Should include topic-public-transport-seat');
   assert.equal(mrtTopic.realVideoUrl, '/video/seat-land.mp4');
@@ -179,15 +180,86 @@ test('getSuggestedOridKeywordsForTopic, getProgressiveFollowUpQuestion, and comp
   assert.ok(PRONUNCIATION_AND_POLICY_QUIZ_BANK.length >= 6);
 });
 
-test('FREE_TRIAL_TOPIC_COUNT is 2 and SEAB_THEMATIC_DOMAINS covers all 20 ORAL_TOPICS', async () => {
+test('FREE_TRIAL_TOPIC_COUNT is 2 and SEAB_THEMATIC_DOMAINS covers all 40 ORAL_TOPICS', async () => {
   const { FREE_TRIAL_TOPIC_COUNT, SEAB_THEMATIC_DOMAINS } = await import('../components/TopicSelectorDeck');
   const { ORAL_TOPICS } = await import('../data/topics');
   assert.equal(FREE_TRIAL_TOPIC_COUNT, 2);
   assert.equal(SEAB_THEMATIC_DOMAINS.length, 5);
   const mappedIds = SEAB_THEMATIC_DOMAINS.flatMap((d) => d.topicIds);
-  assert.equal(mappedIds.length, 20);
+  assert.equal(mappedIds.length, 40);
   for (const topic of ORAL_TOPICS) {
     assert.ok(mappedIds.includes(topic.id), `Topic ${topic.id} should belong to a SEAB thematic domain`);
   }
 });
+
+test('getProgressiveFollowUpQuestion adapts to domain and transcript nuances', () => {
+  const greenR1 = getProgressiveFollowUpQuestion('topic-green-water-conservation', 1);
+  const techR1 = getProgressiveFollowUpQuestion('topic-tech-fake-news', 1);
+  assert.notEqual(greenR1.question, techR1.question);
+
+  const r2Punish = getProgressiveFollowUpQuestion('topic-hawker-tray', 2, '我觉得政府应该增加罚款和惩罚。');
+  const r2Plain = getProgressiveFollowUpQuestion('topic-hawker-tray', 2, '我觉得大家应该互相体谅。');
+  assert.notEqual(r2Punish.question, r2Plain.question);
+});
+
+test('computeStudentAnalytics computes trajectory, weakest dimension, and recurring gaps', () => {
+  const sampleHistory: EvaluationResult[] = [
+    {
+      id: 'h2',
+      topicId: 'topic-green-water-conservation',
+      topicTitle: '节约用水与水源保护',
+      createdAt: '2026-11-12T10:00:00Z',
+      practiceMode: 'exam_sim',
+      totalScore: 39,
+      band: 'Band 2 (优良 34-41)',
+      rubric: {
+        content: { name: '思想内容', score: 12, maxScore: 15, level: '优良 (Band 2)', feedback: '', keyObservations: [] },
+        expression: { name: '表达与结构', score: 11, maxScore: 15, level: '优良 (Band 2)', feedback: '', keyObservations: [] },
+        vocabulary: { name: '词汇语料', score: 6, maxScore: 10, level: '尚可 (Band 3)', feedback: '', keyObservations: [] },
+        pronunciation: { name: '语音发音', score: 10, maxScore: 10, level: '极佳 (Band 1)', feedback: '', keyObservations: [] },
+      },
+      tripleFeedback: {} as any,
+      pronunciationIssues: [{ word: '角色', pinyin: 'jué sè', explanation: '', toneInfo: '', category: 'polyphone' }],
+      corpusSuggestions: {} as any,
+      initialTranscript: '我们要保护水资源，我认为大家要养成好习惯。',
+      audioDurationSeconds: 40,
+    },
+    {
+      id: 'h1',
+      topicId: 'topic-hawker-tray',
+      topicTitle: '小贩中心主动归还托盘',
+      createdAt: '2026-11-10T10:00:00Z',
+      practiceMode: 'guided',
+      totalScore: 33,
+      band: 'Band 3 (尚可 25-33)',
+      rubric: {
+        content: { name: '思想内容', score: 10, maxScore: 15, level: '尚可 (Band 3)', feedback: '', keyObservations: [] },
+        expression: { name: '表达与结构', score: 10, maxScore: 15, level: '尚可 (Band 3)', feedback: '', keyObservations: [] },
+        vocabulary: { name: '词汇语料', score: 5, maxScore: 10, level: '尚可 (Band 3)', feedback: '', keyObservations: [] },
+        pronunciation: { name: '语音发音', score: 8, maxScore: 10, level: '优良 (Band 2)', feedback: '', keyObservations: [] },
+      },
+      tripleFeedback: {} as any,
+      pronunciationIssues: [{ word: '角色', pinyin: 'jué sè', explanation: '', toneInfo: '', category: 'polyphone' }],
+      corpusSuggestions: {} as any,
+      initialTranscript: '我认为每个人都扮演重要角色。',
+      audioDurationSeconds: 30,
+    },
+  ];
+
+  const summary = computeStudentAnalytics(sampleHistory, [], 40);
+  assert.equal(summary.totalSessions, 2);
+  assert.equal(summary.uniqueTopicsPracticed, 2);
+  assert.equal(summary.totalTopicCount, 40);
+  assert.equal(summary.guidedCount, 1);
+  assert.equal(summary.examSimCount, 1);
+  assert.equal(summary.scoreDeltaLastVsPrev, 6);
+  assert.equal(summary.weakestDimension?.key, 'vocabulary');
+  assert.equal(summary.trajectory.length, 2);
+  assert.equal(summary.trajectory[0].practiceMode, 'guided');
+  assert.equal(summary.trajectory[1].practiceMode, 'exam_sim');
+  assert.equal(summary.recurringPronunciationTraps[0].word, '角色');
+  assert.equal(summary.recurringPronunciationTraps[0].occurrences, 2);
+  assert.equal(summary.recurringLogicGaps.missingPersonalExampleCount, 2);
+});
+
 

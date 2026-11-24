@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   X,
   Zap,
@@ -18,10 +18,17 @@ import {
   Download,
   Share2,
   Mail,
+  MessageSquare,
+  ShieldAlert,
+  Clock,
+  Send,
+  Lock,
 } from 'lucide-react';
 import { useLanguage } from '../context/LanguageContext';
 import { CloudUserProfile, SubscriptionPlanTier, User } from '../firebase';
 import { usePWAInstall } from '../hooks/usePWAInstall';
+import type { FeedbackItem, FeedbackStatus } from '../types/feedback';
+import { FEEDBACK_TYPE_METADATA } from '../types/feedback';
 
 export interface EmailRegisterPayload {
   mode: 'register' | 'login';
@@ -50,6 +57,7 @@ interface TrialEditionModalProps {
   onSignOut: () => Promise<void>;
   onSelectSubscriptionPlan: (tier: SubscriptionPlanTier, planLabel: string) => Promise<void>;
   initialSection?: 'overview' | 'pricing' | 'mobile_install';
+  onOpenFeedbackModal?: () => void;
 }
 
 export const TrialEditionModal: React.FC<TrialEditionModalProps> = ({
@@ -69,8 +77,10 @@ export const TrialEditionModal: React.FC<TrialEditionModalProps> = ({
   onSignOut,
   onSelectSubscriptionPlan,
   initialSection = 'overview',
+  onOpenFeedbackModal,
 }) => {
-  const { t } = useLanguage();
+  const { t, lang } = useLanguage();
+  const isZh = lang === 'zh';
   const { isInstallable, isInstalled, isIOS, install } = usePWAInstall();
   const [activeSubTab, setActiveSubTab] = useState<'overview' | 'pricing' | 'mobile_install'>(initialSection);
   const [copiedLink, setCopiedLink] = useState(false);
@@ -83,6 +93,69 @@ export const TrialEditionModal: React.FC<TrialEditionModalProps> = ({
   const [passwordInput, setPasswordInput] = useState('');
   const [studentNameInput, setStudentNameInput] = useState('');
   const [authFeedback, setAuthFeedback] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  // Feedback & Admin Queue states
+  const [myFeedbacks, setMyFeedbacks] = useState<FeedbackItem[]>([]);
+  const [adminFeedbacks, setAdminFeedbacks] = useState<FeedbackItem[]>([]);
+  const [adminFilter, setAdminFilter] = useState<FeedbackStatus | 'all'>('all');
+  const [adminReplyTexts, setAdminReplyTexts] = useState<Record<string, string>>({});
+  const [isUpdatingFeedback, setIsUpdatingFeedback] = useState<string | null>(null);
+
+  const isAdmin = (userProfile?.email || currentUser?.email || '').toLowerCase() === 'derrick.xiang@gmail.com';
+
+  const loadFeedbacks = async () => {
+    const uid = userProfile?.uid || currentUser?.uid;
+    if (uid) {
+      try {
+        const res = await fetch(`/api/feedback/my-list?userId=${encodeURIComponent(uid)}`);
+        if (res.ok) {
+          const data = await res.json();
+          setMyFeedbacks(data.items || []);
+        }
+      } catch (err) {
+        console.warn('Load my feedback error:', err);
+      }
+    }
+
+    if (isAdmin) {
+      try {
+        const res = await fetch(`/api/feedback/admin/list?requesterEmail=derrick.xiang@gmail.com`);
+        if (res.ok) {
+          const data = await res.json();
+          setAdminFeedbacks(data.items || []);
+        }
+      } catch (err) {
+        console.warn('Load admin feedback error:', err);
+      }
+    }
+  };
+
+  useEffect(() => {
+    if (isOpen) {
+      loadFeedbacks();
+    }
+  }, [isOpen, userProfile?.uid, currentUser?.uid, isAdmin]);
+
+  const handleUpdateFeedbackStatus = async (feedbackId: string, status: FeedbackStatus) => {
+    setIsUpdatingFeedback(feedbackId);
+    try {
+      const res = await fetch('/api/feedback/admin/update', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          feedbackId,
+          status,
+          adminReply: adminReplyTexts[feedbackId],
+          requesterEmail: 'derrick.xiang@gmail.com',
+        }),
+      });
+      if (res.ok) {
+        await loadFeedbacks();
+      }
+    } finally {
+      setIsUpdatingFeedback(null);
+    }
+  };
 
   if (!isOpen) return null;
 
@@ -104,8 +177,8 @@ export const TrialEditionModal: React.FC<TrialEditionModalProps> = ({
       await onSelectSubscriptionPlan(tier, label);
       setCheckoutSuccessMsg(
         t(
-          `Successfully activated: ${label}. All 20 Singapore O-Level video topics are now unlocked!`,
-          `已成功开通：${label}！全部 20 套新加坡 O-Level 实景视频题库已为您解锁。`
+          `Successfully activated: ${label}. All 40 Singapore Chinese oral video topics are now unlocked!`,
+          `已成功开通：${label}！全部 40 套新加坡生活实景口语话题已为您解锁。`
         )
       );
     } finally {
@@ -139,8 +212,8 @@ export const TrialEditionModal: React.FC<TrialEditionModalProps> = ({
           text:
             res.message ||
             t(
-              'Email account registered! All 20 Singapore O-Level Oral Topics are now unlocked.',
-              '邮箱账号注册并登录成功！已为您解锁全部 20 套新加坡 O 水准口试考题。'
+              'Email account registered! All 40 Singapore Chinese Oral Topics are now unlocked.',
+              '邮箱账号注册并登录成功！已为您解锁全部 40 套新加坡华文口语练习话题。'
             ),
         });
       } else {
@@ -163,14 +236,14 @@ export const TrialEditionModal: React.FC<TrialEditionModalProps> = ({
               <span>
                 {t(
                   'OralAce Member Center · Email Account Registration & Topic Unlock',
-                  'OralAce 账户中心 · 邮箱注册解锁全部 20 套考题与手机端安装'
+                  'OralAce 账户中心 · 邮箱注册解锁全部 40 套话题与手机端安装'
                 )}
               </span>
             </div>
             <h2 className="text-lg font-bold tracking-tight">
               {t(
-                'Email Registration (Unlock All 20 Topics), Plans & Mobile App',
-                '电子邮箱注册登录（解锁全部 20 套考题）、会员方案与手机 App 下载'
+                'Email Registration (Unlock All 40 Topics), Plans & Mobile App',
+                '电子邮箱注册登录（解锁全部 40 套话题）、会员方案与手机 App 下载'
               )}
             </h2>
           </div>
@@ -224,7 +297,8 @@ export const TrialEditionModal: React.FC<TrialEditionModalProps> = ({
         <div className="p-6 space-y-6 max-h-[78vh] overflow-y-auto">
           {/* Account Status or Email-Only Registration Box */}
           {isLoggedIn ? (
-            <div className="bg-teal-50/70 rounded-xl border border-teal-200 p-4 flex flex-wrap items-center justify-between gap-4">
+            <>
+              <div className="bg-teal-50/70 rounded-xl border border-teal-200 p-4 flex flex-wrap items-center justify-between gap-4">
               <div className="flex items-center gap-3.5">
                 <div className="w-11 h-11 rounded-full bg-[#0B3B3C] text-emerald-300 flex items-center justify-center font-bold text-base shrink-0">
                   {(userProfile?.displayName || currentUser?.displayName || 'S').charAt(0).toUpperCase()}
@@ -235,7 +309,7 @@ export const TrialEditionModal: React.FC<TrialEditionModalProps> = ({
                       {userProfile?.displayName || currentUser?.displayName || 'Registered Student'}
                     </span>
                     <span className="text-[11px] font-semibold px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-800">
-                      {t('Email Registered · All 20 Topics Unlocked', '已注册邮箱账号 · 全部 20 套考题已解锁')}
+                      {t('Email Registered · All 40 Topics Unlocked', '已注册邮箱账号 · 全部 40 套话题已解锁')}
                     </span>
                   </div>
                   <p className="text-xs text-slate-600 mt-0.5">
@@ -245,15 +319,249 @@ export const TrialEditionModal: React.FC<TrialEditionModalProps> = ({
                 </div>
               </div>
 
-              <button
-                type="button"
-                onClick={onSignOut}
-                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl border border-slate-200 bg-white hover:bg-slate-100 text-slate-700 text-xs font-semibold transition-colors cursor-pointer"
-              >
-                <LogOut className="w-3.5 h-3.5" />
-                <span>{t('Sign Out (Return to 2-Topic Free Mode)', '退出登录（返回 2 题免费版）')}</span>
-              </button>
+              <div className="flex flex-wrap items-center gap-2">
+                {onOpenFeedbackModal && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onClose();
+                      onOpenFeedbackModal();
+                    }}
+                    className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl border border-teal-700 bg-teal-800 hover:bg-teal-900 text-white text-xs font-semibold transition-colors cursor-pointer shadow-2xs"
+                  >
+                    <MessageSquare className="w-3.5 h-3.5 text-emerald-300" />
+                    <span>{t('Feedback / Report Issue', '反馈／举报问题')}</span>
+                  </button>
+                )}
+
+                <button
+                  type="button"
+                  onClick={onSignOut}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl border border-slate-200 bg-white hover:bg-slate-100 text-slate-700 text-xs font-semibold transition-colors cursor-pointer"
+                >
+                  <LogOut className="w-3.5 h-3.5" />
+                  <span>{t('Sign Out', '退出登录')}</span>
+                </button>
+              </div>
             </div>
+
+            {/* Student Feedback & Issue Report History */}
+            {isLoggedIn && (
+              <div className="bg-white rounded-2xl border border-slate-200 p-5 space-y-3.5 shadow-2xs">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-3">
+                  <div className="flex items-center gap-2">
+                    <MessageSquare className="w-4 h-4 text-teal-800" />
+                    <h3 className="text-sm font-bold text-slate-900">
+                      {t('Feedback & Issue Report', '反馈／举报问题通道')}
+                    </h3>
+                  </div>
+                  {onOpenFeedbackModal && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onClose();
+                        onOpenFeedbackModal();
+                      }}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-teal-700 hover:bg-teal-800 text-white text-xs font-bold transition-colors cursor-pointer shadow-2xs self-start sm:self-auto"
+                    >
+                      <MessageSquare className="w-3.5 h-3.5" />
+                      <span>{t('Submit New Feedback / Report', '提交新反馈或安全举报')}</span>
+                    </button>
+                  )}
+                </div>
+
+                <p className="text-xs text-slate-500 leading-relaxed">
+                  {t(
+                    'Encountered a bug, inappropriate content, or privacy request? Report it here. Practice speech, answers, and reports are never automatically uploaded.',
+                    '在使用过程中遇到功能异常、内容不适或隐私诉求？可在此直接提交。系统绝不自动附带或收集您的录音、作答与报告内容。'
+                  )}
+                </p>
+
+                {/* List of Student's Past Submissions */}
+                {myFeedbacks.length > 0 ? (
+                  <div className="space-y-2 pt-1">
+                    <div className="text-[11px] font-bold text-slate-600">
+                      {t('Your Submitted Feedback & Status:', '您提交的反馈记录与处理状态：')}
+                    </div>
+                    <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+                      {myFeedbacks.map((item) => {
+                        const meta = FEEDBACK_TYPE_METADATA[item.type];
+                        return (
+                          <div
+                            key={item.id}
+                            className="p-3 rounded-xl border border-slate-200 bg-slate-50/70 text-xs space-y-1.5"
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="flex items-center gap-1.5">
+                                <span className="font-mono font-bold text-teal-900">{item.id}</span>
+                                <span
+                                  className={`px-2 py-0.5 rounded text-[10px] font-bold border ${meta.badgeColor}`}
+                                >
+                                  {isZh ? meta.labelZh : meta.labelEn}
+                                </span>
+                              </div>
+                              <span
+                                className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                                  item.status === 'resolved'
+                                    ? 'bg-emerald-100 text-emerald-800'
+                                    : item.status === 'in_progress'
+                                    ? 'bg-blue-100 text-blue-800'
+                                    : 'bg-amber-100 text-amber-800'
+                                }`}
+                              >
+                                {item.status === 'resolved'
+                                  ? t('Resolved', '已解决')
+                                  : item.status === 'in_progress'
+                                  ? t('In Progress', '处理中')
+                                  : t('Pending', '待处理')}
+                              </span>
+                            </div>
+
+                            <p className="text-slate-700 leading-relaxed line-clamp-2">
+                              {item.description}
+                            </p>
+
+                            {item.adminReply && (
+                              <div className="p-2 rounded-lg bg-teal-50 border border-teal-200 text-teal-950 text-[11px] space-y-0.5">
+                                <strong className="text-teal-900">{t('Admin Response: ', '管理员回复：')}</strong>
+                                <span>{item.adminReply}</span>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="p-3 bg-slate-50 border border-dashed border-slate-200 rounded-xl text-center text-xs text-slate-400">
+                    {t('No feedback submitted yet.', '暂无历史反馈记录。')}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Administrator Feedback Queue (Derrick.Xiang@gmail.com Only) */}
+            {isAdmin && (
+              <div className="bg-teal-950 text-white rounded-2xl border border-teal-700 p-5 space-y-4 shadow-xl">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-teal-800/80 pb-3">
+                  <div className="flex items-center gap-2">
+                    <ShieldAlert className="w-4 h-4 text-emerald-400" />
+                    <h3 className="text-sm font-bold text-white">
+                      {t('Admin Feedback Queue (Derrick.Xiang Only)', '🛠️ 管理员反馈队列 (仅管理员可见)')}
+                    </h3>
+                  </div>
+
+                  {/* Filter Pills */}
+                  <div className="flex items-center gap-1.5 text-xs">
+                    {(['all', 'pending', 'in_progress', 'resolved'] as const).map((filterKey) => (
+                      <button
+                        key={filterKey}
+                        type="button"
+                        onClick={() => setAdminFilter(filterKey)}
+                        className={`px-2.5 py-1 rounded-md text-[11px] font-semibold transition-colors cursor-pointer ${
+                          adminFilter === filterKey
+                            ? 'bg-emerald-500 text-slate-950 font-bold'
+                            : 'bg-teal-900 text-teal-200 hover:bg-teal-800'
+                        }`}
+                      >
+                        {filterKey === 'all'
+                          ? `全部 (${adminFeedbacks.length})`
+                          : filterKey === 'pending'
+                          ? `待处理 (${adminFeedbacks.filter((f) => f.status === 'pending').length})`
+                          : filterKey === 'in_progress'
+                          ? `处理中 (${adminFeedbacks.filter((f) => f.status === 'in_progress').length})`
+                          : `已解决 (${adminFeedbacks.filter((f) => f.status === 'resolved').length})`}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Feedback List */}
+                <div className="space-y-3 max-h-80 overflow-y-auto pr-1">
+                  {adminFeedbacks
+                    .filter((item) => adminFilter === 'all' || item.status === adminFilter)
+                    .map((item) => {
+                      const meta = FEEDBACK_TYPE_METADATA[item.type];
+                      return (
+                        <div
+                          key={item.id}
+                          className="p-3.5 rounded-xl border border-teal-800 bg-teal-900/60 space-y-2.5 text-xs text-slate-200"
+                        >
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <div className="flex items-center gap-2">
+                              <span className="font-mono font-bold text-emerald-300">{item.id}</span>
+                              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-teal-800 text-emerald-200">
+                                {isZh ? meta.labelZh : meta.labelEn}
+                              </span>
+                              {item.topicTitle && (
+                                <span className="text-slate-400 text-[11px]">
+                                  题: {item.topicTitle}
+                                </span>
+                              )}
+                            </div>
+                            <span className="text-[11px] text-slate-400">
+                              {new Date(item.createdAt).toLocaleString()}
+                            </span>
+                          </div>
+
+                          <div className="p-2.5 rounded-lg bg-teal-950/80 border border-teal-800/80 text-white leading-relaxed">
+                            {item.description || '(未填写描述)'}
+                          </div>
+
+                          {item.contactEmail && (
+                            <div className="text-[11px] text-emerald-300">
+                              联系邮箱: <span className="underline">{item.contactEmail}</span>
+                            </div>
+                          )}
+
+                          {/* Admin Reply & Status Actions */}
+                          <div className="space-y-2 pt-1 border-t border-teal-800/60">
+                            <input
+                              type="text"
+                              value={adminReplyTexts[item.id] ?? item.adminReply ?? ''}
+                              onChange={(e) =>
+                                setAdminReplyTexts((prev) => ({ ...prev, [item.id]: e.target.value }))
+                              }
+                              placeholder="输入对学生的回复（保存后若留有邮箱将发送通知）..."
+                              className="w-full px-3 py-1.5 rounded-lg bg-teal-950 border border-teal-700 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-400"
+                            />
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <div className="flex items-center gap-1.5">
+                                <button
+                                  type="button"
+                                  disabled={isUpdatingFeedback === item.id}
+                                  onClick={() => handleUpdateFeedbackStatus(item.id, 'in_progress')}
+                                  className="px-2.5 py-1 rounded bg-blue-600 hover:bg-blue-500 text-white font-semibold text-[11px] transition-colors cursor-pointer"
+                                >
+                                  标记为处理中
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={isUpdatingFeedback === item.id}
+                                  onClick={() => handleUpdateFeedbackStatus(item.id, 'resolved')}
+                                  className="px-2.5 py-1 rounded bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-[11px] transition-colors cursor-pointer"
+                                >
+                                  标记为已解决并保存回复
+                                </button>
+                              </div>
+                              <span className="text-[11px] text-slate-400">
+                                当前状态: <strong>{item.status}</strong>
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+
+                  {adminFeedbacks.length === 0 && (
+                    <div className="text-center py-6 text-slate-400 text-xs">
+                      暂无待处理的学生反馈记录。
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </>
           ) : (
             <div className="bg-slate-50 rounded-2xl border border-slate-200 p-5 space-y-4">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
@@ -266,8 +574,8 @@ export const TrialEditionModal: React.FC<TrialEditionModalProps> = ({
                   </h3>
                   <p className="text-xs text-slate-500 mt-0.5">
                     {t(
-                      'Free Guest Mode includes 2 topics (#01–#02). Register with your Email to immediately unlock all 20 Singapore O-Level Oral Topics.',
-                      '未注册免费版仅开放前 2 个主题（#01–#02）。使用电子邮箱免费注册后，即可立即解锁全部 20 套新加坡口试主题。'
+                      'Free Guest Mode includes 2 topics (#01–#02). Register with your Email to immediately unlock all 40 Singapore Chinese Oral Topics.',
+                      '未注册免费版仅开放前 2 个主题（#01–#02）。使用电子邮箱免费注册后，即可立即解锁全部 40 套新加坡口语话题。'
                     )}
                   </p>
                 </div>
@@ -314,7 +622,7 @@ export const TrialEditionModal: React.FC<TrialEditionModalProps> = ({
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-bold text-teal-950">
                     {emailMode === 'register'
-                      ? t('Create Account with Email (Unlocks All 20 Topics)', '电子邮箱创建新账号（注册即解锁全部 20 套考题）')
+                      ? t('Create Account with Email (Unlocks All 40 Topics)', '电子邮箱创建新账号（注册即解锁全部 40 套话题）')
                       : t('Sign In with Existing Email Account', '使用已有电子邮箱账号登录')}
                   </span>
                 </div>
@@ -370,8 +678,8 @@ export const TrialEditionModal: React.FC<TrialEditionModalProps> = ({
                 <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
                   <span className="text-[11px] text-slate-500">
                     {t(
-                      'Free version opens Topics #01–#02. Registering with Email unlocks Topics #03–#20 immediately.',
-                      '免费版可练习 #01–#02 两个主题；完成邮箱注册后立即解锁其余全部 18 个主题（共 20 题）。'
+                      'Free version opens Topics #01–#02. Registering with Email unlocks Topics #03–#40 immediately.',
+                      '免费版可练习 #01–#02 两个主题；完成邮箱注册后立即解锁其余全部 38 个主题（共 40 题）。'
                     )}
                   </span>
                   <button
@@ -616,7 +924,7 @@ export const TrialEditionModal: React.FC<TrialEditionModalProps> = ({
                         {t('Email Member / Monthly Pro', '注册会员 / 月度冲刺版')}
                       </span>
                       <span className="text-[11px] font-semibold bg-amber-100 text-amber-800 px-2 py-0.5 rounded-md">
-                        {t('Unlock All 20', '解锁全部 20 题')}
+                        {t('Unlock All 40', '解锁全部 40 题')}
                       </span>
                     </div>
                     <div className="flex items-baseline gap-1 mt-1">
@@ -627,22 +935,22 @@ export const TrialEditionModal: React.FC<TrialEditionModalProps> = ({
                     </div>
                     <p className="text-xs text-slate-500 mt-2">
                       {t(
-                        'Registering with your email unlocks all 20 Singapore O-Level oral topics immediately.',
-                        '使用电子邮箱注册账户即可立即解锁全部 20 套新加坡实景短片题库。'
+                        'Registering with your email unlocks all 40 Singapore Chinese oral topics immediately.',
+                        '使用电子邮箱注册账户即可立即解锁全部 40 套新加坡生活实景短片题库。'
                       )}
                     </p>
                     <ul className="mt-4 space-y-2 text-xs text-slate-700">
                       <li className="flex items-center gap-2">
                         <Unlock className="w-4 h-4 text-teal-900 shrink-0" />
-                        <span>{t('All 20 O-Level Video Topics (#01–#20)', '解锁全部 20 套实景考题 (#01–#20)')}</span>
+                        <span>{t('All 40 Practice Video Topics (#01–#40)', '解锁全部 40 套实景话题 (#01–#40)')}</span>
                       </li>
                       <li className="flex items-center gap-2">
                         <Unlock className="w-4 h-4 text-teal-900 shrink-0" />
-                        <span>{t('Unlimited AI Follow-ups & 50-Mark Scoring', '无限次考官追问与 50 分制精批')}</span>
+                        <span>{t('Unlimited AI Follow-ups & Advisory Tips', '无限次延伸提问与 50 分制练习参考建议')}</span>
                       </li>
                       <li className="flex items-center gap-2">
                         <Unlock className="w-4 h-4 text-teal-900 shrink-0" />
-                        <span>{t('Real Silent Clip (seat-land.mp4) & Flow Sync', '含真题无声短片与 Google Flow 导入')}</span>
+                        <span>{t('Timed Exam Sim Mode & Progress Analytics', '计时模拟考模式与学情薄弱项分析')}</span>
                       </li>
                     </ul>
                   </div>
@@ -656,21 +964,21 @@ export const TrialEditionModal: React.FC<TrialEditionModalProps> = ({
                           setActiveSubTab('overview');
                           return;
                         }
-                        handlePlanActivation('monthly_pro', 'Registered Member Pass (20 Topics)');
+                        handlePlanActivation('monthly_pro', 'Registered Member Pass (40 Topics)');
                       }}
                       className="w-full py-2.5 px-3 rounded-lg bg-[#0B3B3C] hover:bg-teal-900 text-white text-xs font-semibold transition-colors cursor-pointer flex items-center justify-center gap-1.5"
                     >
                       <Mail className="w-3.5 h-3.5" />
                       <span>
                         {isLoggedIn
-                          ? t('All 20 Topics Unlocked', '已登录 · 全部 20 题已解锁')
-                          : t('Go to Email Registration →', '前往邮箱注册解锁全部 20 题 →')}
+                          ? t('All 40 Topics Unlocked', '已登录 · 全部 40 题已解锁')
+                          : t('Go to Email Registration →', '前往邮箱注册解锁全部 40 题 →')}
                       </span>
                     </button>
                   </div>
                 </div>
 
-                {/* Plan 3: Annual O-Level Pass */}
+                {/* Plan 3: Annual Study Pass */}
                 <div
                   className={`rounded-xl border p-5 flex flex-col justify-between ${
                     !isTrialMode && activeTier === 'annual_pro'
@@ -681,7 +989,7 @@ export const TrialEditionModal: React.FC<TrialEditionModalProps> = ({
                   <div>
                     <div className="flex items-center justify-between mb-2">
                       <span className="text-xs font-bold uppercase tracking-wider text-emerald-700">
-                        {t('Annual O-Level Pass', '全年会考通关版')}
+                        {t('Annual Oral Study Pass', '全年口语练习版')}
                       </span>
                       <span className="text-[11px] font-semibold bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-md">
                         {t('Save 50%', '立省 50%')}
@@ -693,22 +1001,22 @@ export const TrialEditionModal: React.FC<TrialEditionModalProps> = ({
                     </div>
                     <p className="text-xs text-slate-500 mt-2">
                       {t(
-                        'For full-year O-Level Chinese oral preparation with cloud portfolio sync.',
-                        '适合全年备考冲刺，提供全部 20 套考题与云端成长档案长期保存。'
+                        'For full-year oral practice with cloud portfolio sync and recurring gap analytics.',
+                        '适合全年备考练习，提供全部 40 套话题与云端成长档案长期保存。'
                       )}
                     </p>
                     <ul className="mt-4 space-y-2 text-xs text-slate-700">
                       <li className="flex items-center gap-2">
                         <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
-                        <span>{t('All 20 Topics + Priority Turbo AI', '全部 20 套考题 + 专属极速 AI 通道')}</span>
+                        <span>{t('All 40 Topics + Priority Turbo AI', '全部 40 套话题 + 极速 AI 陪练通道')}</span>
                       </li>
                       <li className="flex items-center gap-2">
                         <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
-                        <span>{t('Full Singapore Culture Lexicon', '完整新加坡政策与文化高分语料库')}</span>
+                        <span>{t('Full Singapore Culture Lexicon', '完整新加坡生活文化语料参考库')}</span>
                       </li>
                       <li className="flex items-center gap-2">
                         <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
-                        <span>{t('50-Mark Report Card Export', '支持 50 分制成绩单导出打印')}</span>
+                        <span>{t('Practice Summary Card Export', '支持口语练习参考小结导出打印')}</span>
                       </li>
                     </ul>
                   </div>
@@ -717,7 +1025,7 @@ export const TrialEditionModal: React.FC<TrialEditionModalProps> = ({
                     <button
                       type="button"
                       disabled={isProcessingCheckout === 'annual_pro'}
-                      onClick={() => handlePlanActivation('annual_pro', 'Annual O-Level Pass (S$89/yr)')}
+                      onClick={() => handlePlanActivation('annual_pro', 'Annual Study Pass (S$89/yr)')}
                       className="w-full py-2.5 px-3 rounded-lg bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-semibold transition-colors cursor-pointer flex items-center justify-center gap-1.5"
                     >
                       <CreditCard className="w-3.5 h-3.5" />
@@ -725,8 +1033,8 @@ export const TrialEditionModal: React.FC<TrialEditionModalProps> = ({
                         {isProcessingCheckout === 'annual_pro'
                           ? t('Activating...', '正在激活...')
                           : !isTrialMode && activeTier === 'annual_pro'
-                          ? t('Active · Annual Pass Unlocked', '已激活 · 全年通关版')
-                          : t('Activate Annual Pass (Unlock All 20)', '一键开通年卡（解锁全部20题）')}
+                          ? t('Active · Annual Pass Unlocked', '已激活 · 全年练习版')
+                          : t('Activate Annual Pass (Unlock All 40)', '一键开通年卡（解锁全部40题）')}
                       </span>
                     </button>
                   </div>

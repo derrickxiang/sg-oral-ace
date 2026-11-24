@@ -34,8 +34,8 @@ export const MobileExporterView: React.FC = () => {
   const metadata = {
     appNameEn: 'OralAce - your AI Chinese Oral Coach',
     appNameZh: 'OralAce - 你的AI华文口语陪练助手',
-    shortDescriptionEn: 'your AI Chinese Oral Practice Coach for everyday Singapore video & spoken interaction practice.',
-    shortDescriptionZh: '专为青少年打造的华文口语AI陪练助手！20个真实生活短片话题、互动延伸提问、三项表达参考建议与读音提示。',
+    shortDescriptionEn: 'Your AI Chinese Oral Practice Coach for 40 everyday Singapore video & spoken interaction topics.',
+    shortDescriptionZh: '专为青少年打造的华文口语AI陪练助手！40个真实生活短片话题、互动延伸提问、三项表达参考建议与读音提示。',
     keywords: 'OralAce, Chinese Oral Coach, Singapore Chinese, 华文口语, 口语练习, 短片讨论, 互动提问, 多音字参考',
     category: t('Education', 'Education (教育)'),
     contentRating: 'Everyone 3+ / Ages 4+',

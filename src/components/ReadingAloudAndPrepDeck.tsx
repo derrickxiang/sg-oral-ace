@@ -17,6 +17,7 @@ import {
   ReadingAloudPassage,
   ReadingAloudEvaluation,
   OridScratchpadNotes,
+  PracticeMode,
 } from '../types/oral';
 import {
   getReadingAloudPassage,
@@ -34,6 +35,8 @@ interface ReadingAloudAndPrepDeckProps {
   onReadingEvaluated: (evaluation: ReadingAloudEvaluation) => void;
   oridNotes: OridScratchpadNotes;
   onOridNotesChange: (notes: OridScratchpadNotes) => void;
+  practiceMode?: PracticeMode;
+  onPrepElapsedChange?: (secondsUsed: number) => void;
 }
 
 export const ReadingAloudAndPrepDeck: React.FC<ReadingAloudAndPrepDeckProps> = ({
@@ -43,6 +46,8 @@ export const ReadingAloudAndPrepDeck: React.FC<ReadingAloudAndPrepDeckProps> = (
   onReadingEvaluated,
   oridNotes,
   onOridNotesChange,
+  practiceMode = 'guided',
+  onPrepElapsedChange,
 }) => {
   const { t } = useLanguage();
   const [activeSubTab, setActiveSubTab] = useState<'reading' | 'prep_orid'>('reading');
@@ -93,6 +98,10 @@ export const ReadingAloudAndPrepDeck: React.FC<ReadingAloudAndPrepDeckProps> = (
       if (prepTimerRef.current) clearInterval(prepTimerRef.current);
     };
   }, [isPrepTimerRunning, prepSecondsLeft]);
+
+  useEffect(() => {
+    onPrepElapsedChange?.(Math.max(0, 600 - prepSecondsLeft));
+  }, [prepSecondsLeft, onPrepElapsedChange]);
 
   const formatTimer = (secs: number) => {
     const m = Math.floor(secs / 60);
@@ -217,32 +226,42 @@ export const ReadingAloudAndPrepDeck: React.FC<ReadingAloudAndPrepDeckProps> = (
         </div>
 
         {/* Always-visible 10:00 Practice Prep Timer Control */}
-        <div className="inline-flex items-center gap-2 bg-slate-50 border border-slate-200 px-3 py-1.5 rounded-xl text-xs font-mono tabular-nums shrink-0">
-          <Clock className="w-3.5 h-3.5 text-teal-800 shrink-0" />
-          <span className="text-slate-500 font-sans">
-            {t('Prep Timer:', '准备计时：')}
-          </span>
-          <strong className={prepSecondsLeft < 120 ? 'text-red-600' : 'text-slate-900'}>
-            {formatTimer(prepSecondsLeft)}
-          </strong>
-          <button
-            type="button"
-            onClick={() => setIsPrepTimerRunning((prev) => !prev)}
-            className="px-2 py-0.5 rounded bg-teal-900 text-white font-sans font-semibold text-[11px] hover:bg-teal-800 transition-colors cursor-pointer"
-          >
-            {isPrepTimerRunning ? t('Pause', '暂停') : t('Start', '开始')}
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              setIsPrepTimerRunning(false);
-              setPrepSecondsLeft(600);
-            }}
-            title={t('Reset 10:00 Timer', '重置10分钟计时')}
-            className="text-slate-400 hover:text-slate-700 cursor-pointer"
-          >
-            <RotateCcw className="w-3.5 h-3.5" />
-          </button>
+        <div className="flex flex-wrap items-center gap-2">
+          {practiceMode === 'exam_sim' && (
+            <span
+              data-testid="exam-sim-prep-badge"
+              className="text-[11px] font-semibold text-amber-800 bg-amber-50 border border-amber-200 px-2.5 py-1 rounded-lg whitespace-nowrap"
+            >
+              {t('Exam Sim · Hints Hidden', '限时模拟 · 提示隐藏')}
+            </span>
+          )}
+          <div className="inline-flex items-center gap-2 bg-slate-50 border border-slate-200 px-3 py-1.5 rounded-xl text-xs font-mono tabular-nums shrink-0">
+            <Clock className="w-3.5 h-3.5 text-teal-800 shrink-0" />
+            <span className="text-slate-500 font-sans">
+              {t('Prep Timer:', '准备计时：')}
+            </span>
+            <strong className={prepSecondsLeft < 120 ? 'text-red-600' : 'text-slate-900'}>
+              {formatTimer(prepSecondsLeft)}
+            </strong>
+            <button
+              type="button"
+              onClick={() => setIsPrepTimerRunning((prev) => !prev)}
+              className="px-2 py-0.5 rounded bg-[#0B3B3C] text-white font-sans font-semibold text-[11px] hover:bg-teal-800 transition-colors cursor-pointer"
+            >
+              {isPrepTimerRunning ? t('Pause', '暂停') : t('Start', '开始')}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setIsPrepTimerRunning(false);
+                setPrepSecondsLeft(600);
+              }}
+              title={t('Reset 10:00 Timer', '重置10分钟计时')}
+              className="text-slate-400 hover:text-slate-700 cursor-pointer"
+            >
+              <RotateCcw className="w-3.5 h-3.5" />
+            </button>
+          </div>
         </div>
       </div>
 
@@ -432,15 +451,24 @@ export const ReadingAloudAndPrepDeck: React.FC<ReadingAloudAndPrepDeckProps> = (
               </p>
             </div>
 
-            <button
-              type="button"
-              data-testid="btn-autofill-orid"
-              onClick={handleAutoFillOrid}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-teal-50 hover:bg-teal-100 text-teal-950 border border-teal-900/15 text-xs font-semibold transition-colors cursor-pointer whitespace-nowrap"
-            >
-              <Sparkles className="w-3.5 h-3.5 text-teal-700 shrink-0" />
-              <span>{t('Auto-Fill Topic ORID Keywords', '填入本话题高分 ORID 提纲')}</span>
-            </button>
+            {practiceMode === 'guided' ? (
+              <button
+                type="button"
+                data-testid="btn-autofill-orid"
+                onClick={handleAutoFillOrid}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-teal-50 hover:bg-teal-100 text-teal-950 border border-teal-900/15 text-xs font-semibold transition-colors cursor-pointer whitespace-nowrap"
+              >
+                <Sparkles className="w-3.5 h-3.5 text-teal-700 shrink-0" />
+                <span>{t('Auto-Fill Topic ORID Keywords', '填入本话题高分 ORID 提纲')}</span>
+              </button>
+            ) : (
+              <span className="text-xs text-slate-500 italic">
+                {t(
+                  'Timed Exam Sim: jot your own keywords (model ORID unlocks after submission).',
+                  '限时模拟中：请自主速记关键词（模型示范将于提交评测后解锁）。'
+                )}
+              </span>
+            )}
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">

@@ -159,6 +159,54 @@
         "followUpTranscript",
         "createdAt"
       ]
+    },
+    "FeedbackRecord": {
+      "title": "FeedbackRecord",
+      "description": "Student bug report, content safety report, or privacy request; strictly excludes audio or practice transcripts.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Feedback identifier (e.g. FB-YYYYMMDD-XXXX)",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "userId": {
+          "type": "string",
+          "description": "Submitting user UID",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "type": {
+          "type": "string",
+          "enum": ["feature_issue", "content_safety", "privacy_data_request"]
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 2000
+        },
+        "contactEmail": {
+          "type": "string",
+          "maxLength": 254
+        },
+        "topicTitle": {
+          "type": "string",
+          "maxLength": 200
+        },
+        "status": {
+          "type": "string",
+          "enum": ["pending", "in_progress", "resolved"]
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "expiresAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["id", "userId", "type", "status", "createdAt", "expiresAt"]
     }
   },
   "firestore": {
@@ -173,6 +221,10 @@
     "/users/{userId}/practices/{practiceId}": {
       "schema": { "$ref": "#/entities/PracticeRecord" },
       "description": "Subcollection of completed O-Level oral practice records belonging to the user."
+    },
+    "/feedbacks/{feedbackId}": {
+      "schema": { "$ref": "#/entities/FeedbackRecord" },
+      "description": "User feedback and content safety reports retained for 90 days."
     }
   }
 }

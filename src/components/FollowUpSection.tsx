@@ -9,14 +9,21 @@ import {
   Check,
   Layers,
   FileText,
+  Clock,
+  Eye,
+  EyeOff,
+  Loader2,
 } from 'lucide-react';
-import { FollowUpExchange, OridScratchpadNotes } from '../types/oral';
+import { FollowUpExchange, OridScratchpadNotes, PracticeMode } from '../types/oral';
 import { getProgressiveFollowUpQuestion } from '../utils/seabRubric';
 import { playNaturalSpeech, stopNaturalSpeech } from '../utils/naturalSpeech';
 import { useLanguage } from '../context/LanguageContext';
 
 interface FollowUpSectionProps {
   topicId?: string;
+  topicTitle?: string;
+  initialTranscript?: string;
+  practiceMode?: PracticeMode;
   followUpQuestion: string;
   rationaleForQuestion?: string;
   examinerToneAdvice?: string;
@@ -34,6 +41,9 @@ interface FollowUpSectionProps {
 
 export const FollowUpSection: React.FC<FollowUpSectionProps> = ({
   topicId = 'topic-hawker-tray',
+  topicTitle,
+  initialTranscript = '',
+  practiceMode = 'guided',
   followUpQuestion,
   rationaleForQuestion,
   examinerToneAdvice,
@@ -48,16 +58,42 @@ export const FollowUpSection: React.FC<FollowUpSectionProps> = ({
   const [dialogueMode, setDialogueMode] = useState<'single' | 'multi_3'>('multi_3');
   const [currentRound, setCurrentRound] = useState<1 | 2 | 3>(1);
   const [completedExchanges, setCompletedExchanges] = useState<FollowUpExchange[]>([]);
+  const [dynamicRoundData, setDynamicRoundData] = useState<
+    Record<number, { question: string; intent?: string; tip?: string; latencyMs?: number }>
+  >({});
+  const [isFetchingNextQuestion, setIsFetchingNextQuestion] = useState<boolean>(false);
+  const [showExamHint, setShowExamHint] = useState<boolean>(false);
+  const [roundElapsedSec, setRoundElapsedSec] = useState<number>(0);
 
-  const roundPreset = getProgressiveFollowUpQuestion(topicId, currentRound);
+  // Track response pacing timer per round
+  useEffect(() => {
+    setRoundElapsedSec(0);
+    const timer = setInterval(() => {
+      setRoundElapsedSec((prev) => prev + 1);
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [currentRound, dialogueMode]);
+
+  const latestAnswerText =
+    completedExchanges.length > 0
+      ? completedExchanges[completedExchanges.length - 1].candidateAnswer
+      : initialTranscript;
+
+  const roundPreset = getProgressiveFollowUpQuestion(topicId, currentRound, latestAnswerText);
+  const dynamicRound = dynamicRoundData[currentRound];
 
   // Active question for the current round
   const activeQuestion =
-    currentRound === 1 && followUpQuestion ? followUpQuestion : roundPreset.question;
+    dynamicRound?.question ||
+    (currentRound === 1 && followUpQuestion ? followUpQuestion : roundPreset.question);
   const activeIntent =
-    currentRound === 1 && rationaleForQuestion ? rationaleForQuestion : roundPreset.intent;
+    dynamicRound?.intent ||
+    (currentRound === 1 && rationaleForQuestion ? rationaleForQuestion : roundPreset.intent);
   const activeTip =
-    currentRound === 1 && examinerToneAdvice ? examinerToneAdvice : roundPreset.tip;
+    dynamicRound?.tip ||
+    (currentRound === 1 && examinerToneAdvice ? examinerToneAdvice : roundPreset.tip);
+  const activeLatencyMs = dynamicRound?.latencyMs ?? latencyMs;
+  const shouldShowHints = practiceMode === 'guided' || showExamHint;
 
   // Pre-warm examiner voice audio in background
   useEffect(() => {
@@ -93,7 +129,7 @@ export const FollowUpSection: React.FC<FollowUpSectionProps> = ({
     });
   };
 
-  const handleRoundAnswerReady = (
+  const handleRoundAnswerReady = async (
     transcript: string,
     audioUrl: string | null,
     duration: number
@@ -118,8 +154,46 @@ export const FollowUpSection: React.FC<FollowUpSectionProps> = ({
         .join('\n\n');
       const totalDuration = updatedExchanges.reduce((acc, ex) => acc + ex.durationSeconds, 0);
       onFollowUpAnswerSubmit(combinedTranscript, audioUrl, totalDuration, updatedExchanges);
-    } else {
-      const nextRound = (currentRound + 1) as 2 | 3;
+      return;
+    }
+
+    const nextRound = (currentRound + 1) as 2 | 3;
+    setIsFetchingNextQuestion(true);
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 3500);
+      const res = await fetch('/api/oral/followup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        signal: controller.signal,
+        body: JSON.stringify({
+          topicId,
+          topicTitle,
+          primaryQuestion: followUpQuestion,
+          studentTranscript: initialTranscript || transcript,
+          round: nextRound,
+          previousExchanges: updatedExchanges,
+          practiceMode,
+        }),
+      });
+      clearTimeout(timeoutId);
+
+      if (res.ok) {
+        const data = await res.json();
+        setDynamicRoundData((prev) => ({
+          ...prev,
+          [nextRound]: {
+            question: data.followUpQuestion,
+            intent: data.rationaleForQuestion,
+            tip: data.examinerToneAdvice,
+            latencyMs: data.latencyMs,
+          },
+        }));
+      }
+    } catch {
+      // Smoothly fall back to transcript-aware getProgressiveFollowUpQuestion
+    } finally {
+      setIsFetchingNextQuestion(false);
       setCurrentRound(nextRound);
     }
   };
@@ -153,11 +227,25 @@ export const FollowUpSection: React.FC<FollowUpSectionProps> = ({
               {t('Interactive Spoken Practice · Reference Dialogue', '口语互动延伸练习 · 思路启发')}
             </span>
             <span aria-hidden="true">·</span>
-            <span className="inline-flex items-center gap-1 text-emerald-700 font-medium">
+            <span className="inline-flex items-center gap-1 text-emerald-700 font-medium font-mono tabular-nums">
               <Zap className="w-3.5 h-3.5 shrink-0" />
-              {latencyMs
-                ? t(`Generated in ${(latencyMs / 1000).toFixed(2)}s`, `极速响应 ${(latencyMs / 1000).toFixed(2)}秒`)
+              {activeLatencyMs
+                ? t(`Generated in ${(activeLatencyMs / 1000).toFixed(2)}s`, `响应 ${(activeLatencyMs / 1000).toFixed(2)}秒`)
                 : t('Low-Latency AI Practice Partner', 'AI 口语陪练助手')}
+            </span>
+            <span aria-hidden="true">·</span>
+            <span
+              data-testid="followup-pacing-timer"
+              className={`inline-flex items-center gap-1 font-mono tabular-nums ${
+                practiceMode === 'exam_sim' ? 'text-amber-700 font-semibold' : 'text-slate-500'
+              }`}
+            >
+              <Clock className="w-3.5 h-3.5 shrink-0" />
+              {Math.floor(roundElapsedSec / 60)
+                .toString()
+                .padStart(2, '0')}
+              :
+              {(roundElapsedSec % 60).toString().padStart(2, '0')}
             </span>
           </div>
           <h3 className="text-base sm:text-lg font-bold text-slate-900">
@@ -307,16 +395,50 @@ export const FollowUpSection: React.FC<FollowUpSectionProps> = ({
       {/* Active Examiner Question Card */}
       <div className="bg-slate-50 rounded-xl border border-slate-200/80 p-4 sm:p-5">
         <div className="flex items-start gap-3">
-          <MessageSquare className="w-5 h-5 text-teal-800 shrink-0 mt-1" />
+          {isFetchingNextQuestion ? (
+            <Loader2 className="w-5 h-5 text-teal-800 shrink-0 mt-1 animate-spin" />
+          ) : (
+            <MessageSquare className="w-5 h-5 text-teal-800 shrink-0 mt-1" />
+          )}
           <div className="flex-1 min-w-0 space-y-3">
-            <div className="text-xs font-semibold text-teal-800">
-              {t(roundPreset.tierLabelEn, roundPreset.tierLabelZh)}
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="text-xs font-semibold text-teal-800">
+                {t(roundPreset.tierLabelEn, roundPreset.tierLabelZh)}
+              </div>
+              {practiceMode === 'exam_sim' && (
+                <button
+                  type="button"
+                  data-testid="toggle-followup-hint"
+                  onClick={() => setShowExamHint((prev) => !prev)}
+                  className="inline-flex items-center gap-1 text-[11px] font-semibold text-slate-600 hover:text-teal-900 cursor-pointer"
+                >
+                  {showExamHint ? (
+                    <>
+                      <EyeOff className="w-3.5 h-3.5" />
+                      <span>{t('Hide Focus Hint', '隐藏提示')}</span>
+                    </>
+                  ) : (
+                    <>
+                      <Eye className="w-3.5 h-3.5" />
+                      <span>{t('Exam Sim · Show Hint', '模拟考场 · 查看思考提示')}</span>
+                    </>
+                  )}
+                </button>
+              )}
             </div>
+
             <p className="text-slate-900 font-semibold text-sm sm:text-lg leading-relaxed break-words">
-              {activeQuestion.startsWith('“') ? activeQuestion : `“${activeQuestion}”`}
+              {isFetchingNextQuestion
+                ? t(
+                    'Coach is formulating your next contextual follow-up question…',
+                    'AI 陪练正在结合您刚才的回答生成下一轮深度追问……'
+                  )
+                : activeQuestion.startsWith('“')
+                ? activeQuestion
+                : `“${activeQuestion}”`}
             </p>
 
-            {activeIntent && (
+            {shouldShowHints && activeIntent && (
               <div className="pt-3 border-t border-slate-200/70 flex items-start gap-2 text-xs text-slate-600">
                 <Sparkles className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
                 <div>
@@ -328,7 +450,7 @@ export const FollowUpSection: React.FC<FollowUpSectionProps> = ({
               </div>
             )}
 
-            {activeTip && (
+            {shouldShowHints && activeTip && (
               <p className="text-xs text-slate-500">
                 <strong className="text-slate-700 font-semibold">
                   {t('Practice Tip: ', '表达建议：')}
@@ -343,10 +465,10 @@ export const FollowUpSection: React.FC<FollowUpSectionProps> = ({
       {/* Answer Recorder for Current Round */}
       <div>
         <VoiceRecorder
-          key={`followup-round-${currentRound}-${dialogueMode}`}
+          key={`followup-round-${currentRound}-${dialogueMode}-${practiceMode}`}
           onTranscriptReady={handleRoundAnswerReady}
-          isLoading={isLoading}
-          sampleAnswer={roundPreset.sampleAnswer}
+          isLoading={isLoading || isFetchingNextQuestion}
+          sampleAnswer={practiceMode === 'guided' ? roundPreset.sampleAnswer : undefined}
           placeholderText={t(
             'Click the microphone to answer the follow-up question in Chinese. Acknowledge the question first, then expand with real-life examples…',
             '请点击录音回答延伸提问，可先用一句话回应问题，再结合真实生活案例展开分享……'

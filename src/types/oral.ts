@@ -46,6 +46,8 @@ export interface OralTopic {
 
 export type DifficultyLevel = 'basic' | 'advanced';
 
+export type PracticeMode = 'guided' | 'exam_sim';
+
 export interface ConsentRecord {
   version: string; // e.g. 'trial-notice-2026-11-08'
   ageBand: 'adult' | 'u18-parent';
@@ -212,6 +214,8 @@ export interface EvaluationResult {
   oridNotes?: OridScratchpadNotes;
   acousticTelemetry?: AcousticGopFluencyTelemetry;
   difficultyLevel?: DifficultyLevel;
+  practiceMode?: PracticeMode;
+  prepSecondsUsed?: number;
   audioDurationSeconds: number;
   isRetest?: boolean;
   aiMetadata?: {

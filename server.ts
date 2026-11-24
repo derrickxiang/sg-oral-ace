@@ -1,4 +1,4 @@
-import express, { Request, Response } from 'express';
+import express, { type Request, type Response } from 'express';
 import path from 'path';
 import fs from 'fs';
 import crypto from 'crypto';
@@ -12,9 +12,18 @@ import {
   detectPronunciationIssues,
   compareAttempts,
   COMMON_PRONUNCIATION_DATABASE,
+  getProgressiveFollowUpQuestion,
 } from './src/utils/seabRubric.ts';
-import { EvaluationResult } from './src/types/oral.ts';
+import type { EvaluationResult } from './src/types/oral.ts';
 import { ORAL_TOPICS } from './src/data/topics.ts';
+import {
+  createFeedback,
+  getUserFeedbacks,
+  getAllFeedbacks,
+  updateFeedbackStatus,
+  purgeExpiredFeedbacks,
+} from './src/services/feedbackService.ts';
+import type { FeedbackSubmissionPayload, FeedbackStatus } from './src/types/feedback.ts';
 
 dotenv.config();
 
@@ -353,19 +362,35 @@ app.post('/api/oral/tts', async (req: Request, res: Response) => {
   }
 });
 
-// 1. Follow-up Question Generation (AI 考官智能追问 — Low-Latency ThinkingLevel.LOW + Cache)
+// 1. Follow-up Question Generation (AI 陪练多轮渐进延伸提问 — Low-Latency ThinkingLevel.LOW + Cache)
 app.post('/api/oral/followup', async (req: Request, res: Response) => {
   const startTime = Date.now();
   try {
-    const { topicTitle, primaryQuestion, studentTranscript, fastMode } = req.body;
+    const {
+      topicId = 'topic-hawker-tray',
+      topicTitle,
+      primaryQuestion,
+      studentTranscript,
+      round = 1,
+      previousExchanges = [],
+      practiceMode = 'guided',
+      fastMode,
+    } = req.body;
 
     if (!studentTranscript || studentTranscript.trim().length === 0) {
       return res.status(400).json({ error: '回答内容不能为空' });
     }
 
+    const roundNum = ([1, 2, 3].includes(Number(round)) ? Number(round) : 1) as 1 | 2 | 3;
+    const exchangesSummary = Array.isArray(previousExchanges)
+      ? previousExchanges
+          .map((ex: any, i: number) => `R${ex?.round ?? i + 1} 问：${ex?.question || ''}\nR${ex?.round ?? i + 1} 答：${ex?.candidateAnswer || ''}`)
+          .join('\n')
+      : '';
+
     const cacheKey = crypto
       .createHash('sha1')
-      .update(`followup:${topicTitle || ''}:${studentTranscript.trim()}`)
+      .update(`followup:r${roundNum}:${practiceMode}:${topicTitle || ''}:${studentTranscript.trim()}:${exchangesSummary}`)
       .digest('hex');
 
     if (followupCache.has(cacheKey)) {
@@ -379,12 +404,22 @@ app.post('/api/oral/followup', async (req: Request, res: Response) => {
 
     if (aiClient && !fastMode) {
       try {
-        const prompt = `你是新加坡O水准（SEAB Paper 3）华文口试考官。
-短片：《${topicTitle}》 | 首问：“${primaryQuestion}”
-考生回答：“${studentTranscript}”
-请针对考生回答的逻辑盲点或未展开角度（如只谈惩罚未谈教育、缺乏个人亲身经历、或忽略现实阻力），用温和规范的新加坡考官口吻提出1个追问（50-85字）。
-仅输出JSON：
-{"followUpQuestion":"你刚才提到……那么在现实生活中……？","rationaleForQuestion":"考查意图（30字内）","examinerToneAdvice":"应对提示（25字内）"}`;
+        const roundFocus =
+          roundNum === 1
+            ? '第1轮：结合学生首答内容，从“校园或组屋社区亲身见闻/具体生活细节”自然追问1个问题。'
+            : roundNum === 2
+            ? '第2轮：承接前面对话，从“学校育人、同侪影响或青少年实践方案”层面深挖1个问题，避免与前轮重复。'
+            : '第3轮：进行高阶思辨追问，聚焦“外在条规约束 vs 内在同理心与多方协同”提出1个总结性挑战问题。';
+
+        const prompt = `你是亲切、富有启发性的新加坡中学华文口试 AI 陪练教练（提供练习指导，非官方考评）。
+短片主题：《${topicTitle}》 | 首问：“${primaryQuestion}”
+学生首答：“${studentTranscript}”
+${exchangesSummary ? `已进行的延伸对话：\n${exchangesSummary}\n` : ''}当前轮次：第 ${roundNum}/3 轮（${roundFocus}）
+练习模式：${practiceMode === 'exam_sim' ? '计时模拟测试模式（语气贴近真实面谈节奏）' : '循序引导练习模式（语气亲切具启发性）'}
+
+请针对学生回答的逻辑盲点、可深挖的细节或尚未兼顾的角度，用自然规范的新加坡华语提出 1 个延伸提问（50-85字）。
+仅输出 JSON：
+{"followUpQuestion":"你刚才提到……那么在现实生活中……？","rationaleForQuestion":"思考切入点参考（30字内）","examinerToneAdvice":"表达小建议（25字内）"}`;
 
         const response = await withTimeout(
           aiClient.models.generateContent({
@@ -404,9 +439,10 @@ app.post('/api/oral/followup', async (req: Request, res: Response) => {
         const parsed = JSON.parse(responseText);
         const payload = {
           ...parsed,
+          round: roundNum,
           latencyMs: Date.now() - startTime,
           aiMetadata: {
-            engine: 'Google Gemini 3.8 Flash (ThinkingLevel.LOW 极速推理)',
+            engine: 'Google Gemini 3.8 Flash (多轮上下文推理)',
             model: 'gemini-3.8-flash',
             timestamp: new Date().toISOString(),
           },
@@ -418,33 +454,34 @@ app.post('/api/oral/followup', async (req: Request, res: Response) => {
       }
     }
 
-    // Instant SEAB syllabus heuristic follow-up generator (<5ms)
+    // Instant progressive heuristic follow-up generator (<5ms)
     const cleaned = studentTranscript.toLowerCase();
-    let followUpQuestion = '';
-    let rationale = '';
+    const progressive = getProgressiveFollowUpQuestion(topicId, roundNum, studentTranscript);
+    let followUpQuestion = progressive.question.replace(/^[“"]|[”"]$/g, '');
+    let rationale = progressive.intent;
+    let toneAdvice = progressive.tip;
 
-    if (cleaned.includes('罚款') || cleaned.includes('法律') || cleaned.includes('警察') || cleaned.includes('惩罚')) {
-      followUpQuestion =
-        '你刚才提到可以通过提高罚款和严格执法来解决问题。但如果在现实生活中，有些年长者或低收入群体确实无力承担，你认为单靠重罚是否能从根本上改变人们的习惯？学校和社区还可以采取哪些更温和有效的引导方式？';
-      rationale = '考生过于侧重刚性惩罚手段，追问旨在引导其反思法制与德治的关系，拓展至学校育人与社区关怀。';
-    } else if (cleaned.includes('应该') && !cleaned.includes('我记得') && !cleaned.includes('有一次')) {
-      followUpQuestion =
-        '你刚才提出了不少很好的建议和道理。那么在你的学校或日常邻里生活中，你自己或者身边的同学朋友，是否曾亲身经历过类似的事情？当时你们是如何处理的？';
-      rationale = '考生论述停留在口号式的倡议层面，追问意在促使考生结合真实生活经历（Personal Experience），增强说服力。';
-    } else {
-      followUpQuestion =
-        '听了你的观点，如果要在全岛范围内真正推广并内化为你所说的这种风气，你认为目前最大的现实阻力是什么？年轻人又能扮演怎样独特的积极角色？';
-      rationale = '考察考生对现实社会复杂性的体察洞察力，以及青少年作为社会先锋的主体担当意识。';
+    if (roundNum === 1) {
+      if (cleaned.includes('罚款') || cleaned.includes('法律') || cleaned.includes('警察') || cleaned.includes('惩罚')) {
+        followUpQuestion =
+          '你刚才提到可以通过加强规则和罚款来改善问题。不过在现实生活里，如果遇到记忆力下降的长者或疏忽的青少年，单靠惩罚就能真正改变习惯吗？学校和社区还可以采取哪些更温和有效的引导方式？';
+        rationale = '回答偏重条规约束，延伸提问旨在引导思考“规则约束与品德自觉”的平衡。';
+      } else if (cleaned.includes('应该') && !cleaned.includes('我记得') && !cleaned.includes('有一次')) {
+        followUpQuestion =
+          '你刚才提出了很有道理的想法。在你的学校或日常居住的组屋邻里里，你自己或身边的同学家人，是否曾亲身经历或目睹过类似的事情？当时你们是怎么处理或感受的？';
+        rationale = '回答以倡导观点为主，延伸提问旨在鼓励补充“个人亲身见闻”，让内容更有温度。';
+      }
     }
 
     const fallbackPayload = {
       followUpQuestion,
       rationaleForQuestion: rationale,
-      examinerToneAdvice: '答追问时不必慌张，可先用一句话承接考官问题，再分两点阐述，并结合自身经历佐证。',
+      examinerToneAdvice: toneAdvice,
+      round: roundNum,
       latencyMs: Date.now() - startTime,
       aiMetadata: {
-        engine: 'SEAB 口试极速规则引擎 (<10ms 零延迟响应)',
-        model: 'seab-fast-engine',
+        engine: 'OralAce 多轮语境规则引擎 (<10ms 极速响应)',
+        model: 'oralace-fast-engine',
         timestamp: new Date().toISOString(),
       },
     };
@@ -452,7 +489,7 @@ app.post('/api/oral/followup', async (req: Request, res: Response) => {
     return res.json(fallbackPayload);
   } catch (err: any) {
     console.error('Error generating follow-up:', err);
-    return res.status(500).json({ error: '生成追问失败', details: err?.message });
+    return res.status(500).json({ error: '生成延伸提问失败', details: err?.message });
   }
 });
 
@@ -468,13 +505,16 @@ app.post('/api/oral/evaluate', async (req: Request, res: Response) => {
       followUpQuestion,
       followUpTranscript,
       audioDurationSeconds = 45,
+      practiceMode = 'guided',
+      prepSecondsUsed,
+      readingAloudScore,
       fastMode = false,
     } = req.body;
 
     const fullStudentText = `${initialTranscript || ''}\n${followUpTranscript || ''}`.trim();
     const evalCacheKey = crypto
       .createHash('sha1')
-      .update(`eval:${topicId}:${fullStudentText}`)
+      .update(`eval:${practiceMode}:${topicId}:${fullStudentText}`)
       .digest('hex');
 
     if (evaluationCache.has(evalCacheKey)) {
@@ -483,6 +523,8 @@ app.post('/api/oral/evaluate', async (req: Request, res: Response) => {
         ...cached,
         id: `eval-${Date.now()}`,
         createdAt: new Date().toISOString(),
+        practiceMode,
+        prepSecondsUsed,
       });
     }
 
@@ -530,13 +572,14 @@ app.post('/api/oral/evaluate', async (req: Request, res: Response) => {
     };
 
     if (aiClient && !fastMode) {
-      // Compact, focused prompt: Gemini only generates the dynamic rubric & tripleFeedback with ThinkingLevel.LOW
-      const evaluationPrompt = `你是新加坡O水准（SEAB Paper 3）华文口试首席考官。
-短片：《${topicTitle}》 | 首问：“${primaryQuestion}”
-考生首答：“${initialTranscript || ''}”
-考官追问：“${followUpQuestion || '无'}” | 考生追答：“${followUpTranscript || '无'}”
+      // Compact, focused prompt: Gemini generates advisory practice feedback & constructive phrasing upgrades
+      const evaluationPrompt = `你是温和专业的新加坡中学华文口语陪练教练（以下评分与建议仅供学生日常练习参考，不代表官方考试评定）。
+短片主题：《${topicTitle}》 | 首问：“${primaryQuestion}”
+学生首答：“${initialTranscript || ''}”
+延伸提问：“${followUpQuestion || '无'}” | 学生延伸回答：“${followUpTranscript || '无'}”
+${typeof readingAloudScore === 'number' ? `第一部分朗读参考分：${readingAloudScore}/10\n` : ''}练习模式：${practiceMode === 'exam_sim' ? '计时模拟测试模式' : '循序引导练习模式'}
 
-按SEAB满分50分（内容15、表达15、词汇10、语音10）及三项核心诊断，输出精简JSON：
+请按50分制练习参考（思想内容15、表达结构15、词汇语料10、语音发音10）及三项核心练习建议，给出真诚、具体且有启发性的 JSON 反馈（尤其在 modelSentenceStarter 中把学生原句升级成更地道自然的表达）：
 {
   "totalScore": 38,
   "band": "Band 2 (优良 34-41)",
@@ -548,11 +591,11 @@ app.post('/api/oral/evaluate', async (req: Request, res: Response) => {
   },
   "tripleFeedback": {
     "clearExpression": { "summary": "哪里表达清楚总结", "highlights": ["亮点1", "亮点2"], "goodPhrasesUsed": ["得当词汇1", "得当词汇2"] },
-    "missingReasons": { "summary": "哪里缺少理由总结", "gaps": ["漏洞1", "漏洞2"], "suggestedAngles": ["补充角度1", "补充角度2"] },
+    "missingReasons": { "summary": "哪里还可以补充理由总结", "gaps": ["可补充点1", "可补充点2"], "suggestedAngles": ["补充角度1", "补充角度2"] },
     "nextTimeImprovements": {
-      "summary": "下一次怎么改总结",
+      "summary": "下一次怎么表达更自然总结",
       "actionableSteps": ["改进步骤1", "改进步骤2"],
-      "modelSentenceStarter": ["高分句式示范1", "高分句式示范2"],
+      "modelSentenceStarter": ["句式升级示范1", "句式升级示范2"],
       "oridFrameworkExample": { "objective": "见闻", "reflective": "感受", "interpretive": "剖析", "decisional": "建议" }
     }
   }
@@ -590,10 +633,12 @@ app.post('/api/oral/evaluate', async (req: Request, res: Response) => {
           followUpQuestion,
           followUpTranscript,
           audioDurationSeconds,
+          practiceMode,
+          prepSecondsUsed,
           aiMetadata: {
-            engine: `Google Gemini 3.8 Flash (ThinkingLevel.LOW 极速混合引擎 · ${Date.now() - startTime}ms)`,
+            engine: `Google Gemini 3.8 Flash (日常口语陪练参考 · ${Date.now() - startTime}ms)`,
             model: 'gemini-3.8-flash',
-            analysisFocus: '针对学生口语表达的逻辑严密性、新加坡本土真实生活例证及规范华语四声展开深度剖析',
+            analysisFocus: '针对表达条理、新加坡生活事例与常用华语声调提供自我练习参考建议',
           },
         };
         evaluationCache.set(evalCacheKey, result);
@@ -665,9 +710,11 @@ app.post('/api/oral/evaluate', async (req: Request, res: Response) => {
       followUpQuestion,
       followUpTranscript,
       audioDurationSeconds,
+      practiceMode,
+      prepSecondsUsed,
       aiMetadata: {
-        engine: `SEAB 华文口试考纲极速引擎 (${Date.now() - startTime}ms 零延迟响应)`,
-        analysisFocus: '针对学生口语表达的逻辑严密性、新加坡本土真实生活例证及规范华语四声展开深度剖析',
+        engine: `OralAce 口语练习快速参考引擎 (${Date.now() - startTime}ms 零延迟响应)`,
+        analysisFocus: '针对表达条理、新加坡生活事例与常用华语声调提供自我练习参考建议',
       },
     };
 
@@ -695,8 +742,82 @@ app.post('/api/oral/compare', async (req: Request, res: Response) => {
   }
 });
 
+// ==========================================
+// FEEDBACK & ISSUE REPORTING PIPELINE (符合设计原则)
+// 1. 不公开邮箱，应用内入口
+// 2. 不自动收集学生练习录音与文字
+// 3. 复用现有 Brevo / 存储，90 天保留期
+// 4. 每账号每天最多 5 条防滥用
+// ==========================================
+
+// 1. Submit Feedback or Content Safety Report
+app.post('/api/feedback/submit', async (req: Request, res: Response) => {
+  try {
+    const payload: FeedbackSubmissionPayload = req.body;
+    if (!payload || !payload.userId) {
+      return res.status(401).json({ error: '必须登录账号后方可提交反馈或举报' });
+    }
+    if (!payload.type || !['feature_issue', 'content_safety', 'privacy_data_request'].includes(payload.type)) {
+      return res.status(400).json({ error: '请选择反馈类型（功能问题 / 内容安全 / 隐私数据）' });
+    }
+    const result = await createFeedback(payload);
+    if (!result.success) {
+      return res.status(429).json({ error: result.error });
+    }
+    return res.json({ success: true, feedback: result.feedback });
+  } catch (err: any) {
+    console.error('Error in /api/feedback/submit:', err);
+    return res.status(500).json({ error: '反馈提交异常，请稍后重试' });
+  }
+});
+
+// 2. Fetch Feedback History for Current Student
+app.get('/api/feedback/my-list', (req: Request, res: Response) => {
+  const userId = req.query.userId as string;
+  if (!userId) {
+    return res.status(400).json({ error: 'Missing userId parameter' });
+  }
+  const items = getUserFeedbacks(userId);
+  return res.json({ items });
+});
+
+// 3. Fetch Admin Feedback Queue (For Derrick.Xiang@gmail.com / Admin View)
+app.get('/api/feedback/admin/list', (req: Request, res: Response) => {
+  const requesterEmail = (req.query.requesterEmail as string || '').toLowerCase();
+  const adminEmail = (process.env.ADMIN_NOTIFICATION_EMAIL || 'Derrick.Xiang@gmail.com').toLowerCase();
+  if (requesterEmail !== adminEmail && process.env.NODE_ENV === 'production') {
+    return res.status(403).json({ error: '无权查看管理员反馈队列' });
+  }
+  const statusFilter = req.query.status as FeedbackStatus | undefined;
+  const items = getAllFeedbacks(statusFilter);
+  return res.json({ items });
+});
+
+// 4. Update Feedback Status & Reply (Admin Only)
+app.post('/api/feedback/admin/update', (req: Request, res: Response) => {
+  const { feedbackId, status, adminReply, requesterEmail } = req.body;
+  const adminEmail = (process.env.ADMIN_NOTIFICATION_EMAIL || 'Derrick.Xiang@gmail.com').toLowerCase();
+  if ((requesterEmail || '').toLowerCase() !== adminEmail && process.env.NODE_ENV === 'production') {
+    return res.status(403).json({ error: '无权执行管理员操作' });
+  }
+  if (!feedbackId || !status) {
+    return res.status(400).json({ error: '缺少 feedbackId 或 status 参数' });
+  }
+  const result = updateFeedbackStatus(feedbackId, status, adminReply);
+  if (!result.success) {
+    return res.status(404).json({ error: result.error });
+  }
+  return res.json({ success: true, feedback: result.feedback });
+});
+
 // Mount Vite or serve static
 async function startServer() {
+  // Purge any expired feedbacks older than 90 days on startup
+  const purged = purgeExpiredFeedbacks();
+  if (purged > 0) {
+    console.log(`[Data Retention Policy] Purged ${purged} feedback records past 90 days.`);
+  }
+
   if (process.env.NODE_ENV === 'production') {
     app.use(express.static(path.resolve(__dirname, 'dist')));
     app.get('*', (_req, res) => {

@@ -24,6 +24,8 @@ import {
   stopAllSpeech,
 } from '../utils/naturalSpeech';
 import { useLanguage } from '../context/LanguageContext';
+import { GoogleFlowBatchModal } from './GoogleFlowBatchModal';
+import { generateGoogleFlowMarkdown } from '../data/googleFlowPromptsData';
 
 interface VideoPlayerSimulatorProps {
   topic: OralTopic;
@@ -109,6 +111,7 @@ export const VideoPlayerSimulator: React.FC<VideoPlayerSimulatorProps> = ({
   const [useNativeSavedVideo, setUseNativeSavedVideo] = useState<boolean>(false);
   const [useRealSilentClip, setUseRealSilentClip] = useState<boolean>(Boolean(topic.realVideoUrl));
   const [showFlowStudio, setShowFlowStudio] = useState<boolean>(false);
+  const [showBatchModal, setShowBatchModal] = useState<boolean>(false);
   const [copiedFlowPrompt, setCopiedFlowPrompt] = useState<boolean>(false);
   const [isUploadingVideo, setIsUploadingVideo] = useState<boolean>(false);
   const [isSynthesizingVideo, setIsSynthesizingVideo] = useState<boolean>(false);
@@ -355,6 +358,24 @@ Smooth camera movement, warm documentary color grading, high detail, 1080p.`;
       setTimeout(() => setCopiedFlowPrompt(false), 3000);
     } catch {
       setStudioStatusMsg(t('Copy failed, please select text manually.', '复制失败，请手动复制。'));
+    }
+  };
+
+  const handleDownloadBatchMarkdownSafe = () => {
+    try {
+      const md = generateGoogleFlowMarkdown();
+      const blob = new Blob([md], { type: 'text/markdown;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = 'Google_Flow_20_Oral_Topics_Prompts.md';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      setStudioStatusMsg(t('Markdown file downloaded safely without cookie checks!', '全套提示词 Markdown 文件已安全下载到您的设备！'));
+    } catch {
+      setShowBatchModal(true);
     }
   };
 
@@ -904,21 +925,41 @@ Smooth camera movement, warm documentary color grading, high detail, 1080p.`;
                   )}
                 </p>
               </div>
-              {savedVideoForTopic && (
-                <a
-                  href={savedVideoForTopic.url}
-                  download={`${topic.id}.${savedVideoForTopic.format.toLowerCase()}`}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-500/20 text-emerald-200 border border-emerald-500/40 hover:bg-emerald-500/30 font-medium shrink-0"
+              <div className="flex flex-wrap items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setShowBatchModal(true)}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-medium text-xs transition-colors cursor-pointer shadow-sm"
+                  title="在线查看或一键复制 20 个题目的完整 Google Flow 提示词"
+                >
+                  <Film className="w-3.5 h-3.5" />
+                  <span>{t('View & Copy All 20 Prompts', '在线查看/复制全套 20 题提示词')}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleDownloadBatchMarkdownSafe}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-teal-800/80 text-emerald-200 border border-teal-600/70 hover:bg-teal-700 font-medium text-xs transition-colors cursor-pointer"
+                  title="安全下载 20 个题目的完整 Markdown 提示词文件（免 Cookie 拦截）"
                 >
                   <Download className="w-3.5 h-3.5" />
-                  <span>
-                    {t(
-                      `Download Saved ${savedVideoForTopic.format} (${savedVideoForTopic.sizeKB}KB)`,
-                      `下载已存视频 (${savedVideoForTopic.format})`
-                    )}
-                  </span>
-                </a>
-              )}
+                  <span>{t('Download .md (Safe)', '安全下载 .md 文件')}</span>
+                </button>
+                {savedVideoForTopic && (
+                  <a
+                    href={savedVideoForTopic.url}
+                    download={`${topic.id}.${savedVideoForTopic.format.toLowerCase()}`}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-500/20 text-emerald-200 border border-emerald-500/40 hover:bg-emerald-500/30 font-medium text-xs shrink-0"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    <span>
+                      {t(
+                        `Download Saved ${savedVideoForTopic.format} (${savedVideoForTopic.sizeKB}KB)`,
+                        `下载已存视频 (${savedVideoForTopic.format})`
+                      )}
+                    </span>
+                  </a>
+                )}
+              </div>
             </div>
 
             {/* Action Buttons Grid */}
@@ -1041,6 +1082,13 @@ Smooth camera movement, warm documentary color grading, high detail, 1080p.`;
           </div>
         )}
       </div>
+
+      {/* 20-Topic Google Flow Batch Prompts Modal */}
+      <GoogleFlowBatchModal
+        isOpen={showBatchModal}
+        onClose={() => setShowBatchModal(false)}
+        defaultTopicId={topic.id}
+      />
     </div>
   );
 };

@@ -6,7 +6,19 @@ import { useLanguage } from '../context/LanguageContext';
 export const CONSENT_VERSION = 'trial-notice-2026-11-08';
 const STORAGE_KEY = 'oralace_consent_v1';
 
-export const ParentConsentBannerModal: React.FC = () => {
+interface ParentConsentBannerModalProps {
+  isOpen?: boolean;
+  onOpen?: () => void;
+  onClose?: () => void;
+  onConsentChange?: (consent: ConsentRecord | null) => void;
+}
+
+export const ParentConsentBannerModal: React.FC<ParentConsentBannerModalProps> = ({
+  isOpen: controlledIsOpen,
+  onOpen,
+  onClose,
+  onConsentChange,
+}) => {
   const { lang } = useLanguage();
   const isZh = lang === 'zh';
 
@@ -19,14 +31,50 @@ export const ParentConsentBannerModal: React.FC = () => {
     }
   });
 
-  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [internalIsOpen, setInternalIsOpen] = useState(false);
+  const isModalOpen = controlledIsOpen !== undefined ? controlledIsOpen : internalIsOpen;
+
+  const [isBannerDismissed, setIsBannerDismissed] = useState<boolean>(() => {
+    try {
+      return sessionStorage.getItem('oralace_consent_banner_dismissed') === 'true';
+    } catch {
+      return false;
+    }
+  });
+
   const [selectedTab, setSelectedTab] = useState<'adult' | 'u18-parent'>('u18-parent');
 
   useEffect(() => {
     if (consent) {
       setSelectedTab(consent.ageBand);
+      onConsentChange?.(consent);
     }
-  }, [consent]);
+  }, [consent, onConsentChange]);
+
+  const handleOpenModal = () => {
+    if (onOpen) {
+      onOpen();
+    } else {
+      setInternalIsOpen(true);
+    }
+  };
+
+  const handleCloseModal = () => {
+    if (onClose) {
+      onClose();
+    } else {
+      setInternalIsOpen(false);
+    }
+  };
+
+  const handleDismissBanner = () => {
+    setIsBannerDismissed(true);
+    try {
+      sessionStorage.setItem('oralace_consent_banner_dismissed', 'true');
+    } catch {
+      // ignore
+    }
+  };
 
   const handleConfirmConsent = (ageBand: 'adult' | 'u18-parent') => {
     const newRecord: ConsentRecord = {
@@ -40,70 +88,61 @@ export const ParentConsentBannerModal: React.FC = () => {
     } catch {
       // ignore storage quota errors
     }
-    setIsModalOpen(false);
+    onConsentChange?.(newRecord);
+    handleCloseModal();
   };
 
   return (
     <>
-      {/* Compact Compliance & U18 Parent Consent Strip */}
-      <div
-        data-testid="u18-consent-strip"
-        className="w-full overflow-x-clip bg-teal-950/95 text-teal-50 border-b border-teal-800/80 px-3 sm:px-6 py-2"
-      >
-        <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-2 text-xs min-w-0">
-          <div className="flex items-center gap-2 min-w-0">
-            <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
-            <span className="font-semibold truncate">
-              {isZh
-                ? `SG PDPA 隐私与未成年人保护合规 (${CONSENT_VERSION}) · 录音转写本机处理，不保存原始音频`
-                : `SG PDPA & Minor Protection (${CONSENT_VERSION}) · Zero raw voice storage`}
-            </span>
-            {consent && (
-              <span
-                data-testid="consent-verified-pill"
-                className="hidden md:inline-flex items-center gap-1 px-2 py-0.5 rounded bg-emerald-500/20 border border-emerald-400/40 text-emerald-200 text-[11px] font-bold shrink-0"
-              >
-                <CheckCircle2 className="w-3 h-3 text-emerald-300" />
-                {consent.ageBand === 'u18-parent'
-                  ? isZh
-                    ? '已签署：13–17岁家长/监护人同意'
-                    : 'Signed: 13–17 Parent/Guardian Consent'
-                  : isZh
-                  ? '已签署：18+ 成人同意'
-                  : 'Signed: 18+ Adult Consent'}
+      {/* Friendly, Non-Intrusive Privacy & Consent Banner (Only shown if NOT yet confirmed and not dismissed) */}
+      {!consent && !isBannerDismissed && (
+        <div
+          data-testid="u18-consent-strip"
+          className="w-full bg-emerald-50/90 border-b border-emerald-200/80 text-emerald-950 px-3 sm:px-6 py-2 transition-all"
+        >
+          <div className="max-w-7xl mx-auto flex items-center justify-between gap-3 text-xs min-w-0">
+            <div className="flex items-center gap-2 min-w-0">
+              <ShieldCheck className="w-4 h-4 text-emerald-700 shrink-0" />
+              <span className="font-medium text-emerald-900 truncate">
+                {isZh
+                  ? `SG PDPA 隐私合规：录音转写本地完成，不留存音频。13–17岁学生使用须由家长阅读并确认。`
+                  : `SG PDPA Privacy: On-device speech recognition, zero raw voice stored. Ages 13–17 require parent consent.`}
               </span>
-            )}
-          </div>
+            </div>
 
-          <div className="flex items-center gap-2 shrink-0">
-            <button
-              type="button"
-              data-testid="open-consent-gate-btn"
-              onClick={() => setIsModalOpen(true)}
-              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-teal-800 hover:bg-teal-700 text-teal-50 border border-teal-600/70 font-bold text-[11px] transition-colors cursor-pointer"
-            >
-              <FileCheck2 className="w-3.5 h-3.5 text-amber-300" />
-              <span>
-                {consent
-                  ? isZh
-                    ? '查看/更新家长同意记录'
-                    : 'View / Update Consent'
-                  : isZh
-                  ? '13–17岁家长/成人试用同意确认'
-                  : '13–17 Parent / Adult Consent'}
-              </span>
-            </button>
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                type="button"
+                data-testid="open-consent-gate-btn"
+                onClick={handleOpenModal}
+                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-[11px] transition-colors cursor-pointer shadow-2xs"
+              >
+                <FileCheck2 className="w-3.5 h-3.5 text-amber-300" />
+                <span>
+                  {isZh ? '家长知情与同意确认' : 'Review & Consent'}
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={handleDismissBanner}
+                aria-label="Dismiss banner"
+                className="p-1 rounded text-emerald-700 hover:text-emerald-950 hover:bg-emerald-100 transition-colors cursor-pointer"
+                title={isZh ? '稍后确认' : 'Dismiss for now'}
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
           </div>
         </div>
-      </div>
+      )}
 
-      {/* Consent Gate Modal (ported from derrickxiang/oralace app.html & accounts.js) */}
+      {/* Consent Gate Modal */}
       {isModalOpen && (
         <div
           data-testid="parent-consent-modal"
           className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/70 backdrop-blur-xs p-4"
         >
-          <div className="bg-white border border-slate-200 rounded-2xl max-w-lg w-full p-5 sm:p-6 shadow-2xl space-y-4">
+          <div className="bg-white border border-slate-200 rounded-2xl max-w-lg w-full p-5 sm:p-6 shadow-2xl space-y-4 animate-in fade-in zoom-in-95 duration-150">
             <div className="flex items-start justify-between gap-3 border-b border-slate-100 pb-3">
               <div>
                 <div className="inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-teal-700 bg-teal-50 border border-teal-200 px-2.5 py-0.5 rounded-md mb-1.5">
@@ -118,7 +157,7 @@ export const ParentConsentBannerModal: React.FC = () => {
               </div>
               <button
                 type="button"
-                onClick={() => setIsModalOpen(false)}
+                onClick={handleCloseModal}
                 className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 cursor-pointer"
                 aria-label="Close Consent Modal"
               >
@@ -126,7 +165,7 @@ export const ParentConsentBannerModal: React.FC = () => {
               </button>
             </div>
 
-            {/* Notice Bullet Points from derrickxiang/oralace app.html */}
+            {/* Notice Bullet Points */}
             <ul className="space-y-2 text-xs sm:text-sm text-slate-700 bg-slate-50 border border-slate-200 rounded-xl p-4 list-disc pl-8">
               <li>
                 {isZh
@@ -142,6 +181,11 @@ export const ParentConsentBannerModal: React.FC = () => {
                 {isZh
                   ? '学生安全护栏（Fail-Closed Moderation）：针对未成年学生，语音与文本反馈均经过内容安全过滤后才释放。'
                   : 'Student Safety Guardrail: All AI responses and synthesized speech pass fail-closed content moderation before release.'}
+              </li>
+              <li>
+                {isZh
+                  ? '反馈与问题举报数据处理：应用内提交的反馈与举报仅用于问题定位与安全核查，绝不自动附带或上传练习录音与答题报告；数据保留 90 天到期自动彻底销毁，随账号注销一并删除。'
+                  : 'Feedback & Issue Reporting: User-submitted reports are used solely for safety review and debugging; practice audio and answer transcripts are never automatically attached. Data is retained for 90 days and deleted with account removal.'}
               </li>
               <li className="font-semibold text-teal-900">
                 {isZh

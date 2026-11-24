@@ -1,4 +1,4 @@
-import {
+import type {
   EvaluationResult,
   CoreTripleFeedback,
   PronunciationIssue,
@@ -11,7 +11,8 @@ import {
   CharacterTimestampSegment,
   PhonemeGopSegment,
   DifficultyLevel,
-} from '../types/oral';
+  PracticeMode,
+} from '../types/oral.ts';
 
 // Common Singapore Chinese oral examination pronunciation and polyphone traps
 export const COMMON_PRONUNCIATION_DATABASE: Array<{
@@ -645,7 +646,8 @@ export function getSuggestedOridKeywordsForTopic(topicId: string): OridScratchpa
 // ============================================================================
 export function getProgressiveFollowUpQuestion(
   topicId: string,
-  round: 1 | 2 | 3
+  round: 1 | 2 | 3,
+  studentTranscript?: string
 ): {
   tierLabelZh: string;
   tierLabelEn: string;
@@ -654,41 +656,70 @@ export function getProgressiveFollowUpQuestion(
   tip: string;
   sampleAnswer: string;
 } {
+  const isGreen = topicId.includes('green') || topicId.includes('food-waste');
+  const isTech = topicId.includes('tech') || topicId.includes('scam') || topicId.includes('social-media') || topicId.includes('ai-learning') || topicId.includes('phubbing') || topicId.includes('cashless');
+  const isCulture = topicId.includes('culture') || topicId.includes('racial') || topicId.includes('hawker-heritage');
+  const isYouth = topicId.includes('youth') || topicId.includes('campus') || topicId.includes('tuition') || topicId.includes('part-time') || topicId.includes('reading');
+
   if (round === 1) {
+    let customPrompt = '你刚才结合短片谈了自己的观察。在你的学校或居住的组屋社区里，你是否亲身经历或目睹过类似的事情？当时你有什么感受？';
+    let customSample =
+      '在我的日常生活中确实经常看到类似情景。我记得上周末在大巴窑小贩中心用餐时，邻桌一位中四学生不仅主动把托盘送回归还架，还顺手帮旁边行动不便的老奶奶端走了碗盘。当时老奶奶连声道谢，那一幕让我深受触动，体会到“举手之劳”带来的社区温情。';
+
+    if (isGreen) {
+      customPrompt = '你刚才谈到了环保与生活习惯。在你自己家里或学校食堂，你们平时有没有尝试过具体的减废或健康小做法？过程中遇到过什么麻烦吗？';
+      customSample =
+        '在我的学校和家里都有类似尝试。比如上学期我开始每天自带保温水壶和可重复使用餐盒，起初确实觉得书包重了一点，吃完还要清洗；但坚持了两周后，看着身边同学也受影响一起自带餐盒，心里反而很有成就感。';
+    } else if (isTech) {
+      customPrompt = '数码产品已经成了生活日常。你或身边的同学、家人，有没有在用手机或上网时遇到过让你印象深刻的困扰或小插曲？后来是怎么解决的？';
+      customSample =
+        '我记得上个月外婆在家庭群里转发了一条真假难辨的促销链接，幸好我及时帮她对照官方渠道核实，避免了误点钓鱼网站。那件事让我意识到，年轻人多花五分钟耐心陪长辈确认信息，其实就能避免很多不必要的损失。';
+    } else if (isCulture) {
+      customPrompt = '谈到文化传承或跨代交流，你自己在过传统节日、参观文化场所或与长辈相处时，有没有哪一次经历让你觉得特别有温度、特别难忘？';
+      customSample =
+        '去年中秋节，我和父母一起用旧彩纸陪外婆做手工灯笼，还学着用潮州话问候外婆。外婆笑得合不拢嘴，讲了好多她年轻时在牛车水过节的往事。那一刻我真切感受到，传统习俗最动人的地方就在于一家人的陪伴。';
+    } else if (isYouth) {
+      customPrompt = '青少年的日常离不开课业、课外活动与家庭沟通。在你自己的中学生涯里，有没有经历过类似的压力、团队分歧或成长时刻？你是怎么调整的？';
+      customSample =
+        '在中三那年参加学校课外活动（CCA）比赛前，我们小组曾因意见不合陷入僵局。后来队长提议大家先各自写下理由，再互相倾听折中，最终顺利拿到了好成绩。那次经历让我学会了换位思考和团队合作。';
+    }
+
     return {
-      tierLabelZh: '第一轮追问 · 个人经历与短片延伸',
-      tierLabelEn: 'Round 1 · Personal Experience & Video Extension',
-      question:
-        '“你刚才结合短片谈了很具体的看法。在你的学校或居住的组屋社区里，你是否亲身经历或目睹过类似的事情？当时你有什么感受？”',
-      intent: '考察考生能否将短片议题迅速迁移到真实的新加坡校园或邻里生活，用具体细节增强感染力。',
-      tip: '使用“叙事四要素”（时间+地点+人物细节+内心感悟），切忌只回答“有”或“没有”。',
-      sampleAnswer:
-        '在我的日常生活中确实经常看到类似情景。我记得上周末在大巴窑小贩中心用餐时，邻桌一位中四学生不仅主动把托盘送回归还架，还顺手帮旁边行动不便的老奶奶端走了碗盘。当时老奶奶连声道谢，那一幕让我深受触动，体会到“举手之劳”带来的社区温情。',
+      tierLabelZh: '第一轮延伸提问 · 个人经历与生活连结',
+      tierLabelEn: 'Round 1 · Personal Experience & Everyday Connection',
+      question: `“${customPrompt}”`,
+      intent: '把刚才的观点迅速拉回新加坡真实校园、家庭或组屋邻里日常，用有画面感的亲身细节支撑论述。',
+      tip: '建议运用“时间 + 地点 + 人物细节 + 内心感受”四要素来回答，避免只简短回答“有”或“没有”。',
+      sampleAnswer: customSample,
     };
   }
 
   if (round === 2) {
+    const mentionedPunish = Boolean(studentTranscript && (studentTranscript.includes('罚款') || studentTranscript.includes('惩罚') || studentTranscript.includes('规则')));
+    const customQ = mentionedPunish
+      ? '你刚刚提到规则或约束的重要性。不过在校园和青少年群体中，单靠校规或约束往往容易让人产生逆反心理。你认为学校和同侪（同学朋友）可以用哪些更有吸引力的方式，让大家发自内心地改变习惯？'
+      : '有人觉得中学生课业和 CCA 都很忙碌，很难兼顾这些生活细节或社区行动。作为一名学生，你认为学校和同学之间可以通过哪些具体而轻松的方式，把这种意识融入日常？';
+
     return {
-      tierLabelZh: '第二轮追问 · 学校教育与青年责任',
-      tierLabelEn: 'Round 2 · School Education & Youth Responsibility',
-      question:
-        '“有人认为现在的青少年课业繁忙，很难真正抽出时间关注这类社区与社会议题。作为一名中学生，你认为学校可以通过哪些更有吸引力的方式来培养学生的责任感？”',
-      intent: '从个人经验上升到“学校育人与同侪影响”层面，测试考生提出可行校园方案的能力。',
-      tip: '可结合新加坡教育部“德育在于行动（VIA）”或课外辅助活动（CCA）展开，分两点阐述。',
+      tierLabelZh: '第二轮延伸提问 · 校园引导与同侪影响',
+      tierLabelEn: 'Round 2 · School Initiatives & Peer Influence',
+      question: `“${customQ}”`,
+      intent: '从个人经验拓展到“校园育人与同侪榜样”，练习提出既贴近中学生活又切实可行的校园方案。',
+      tip: '可结合学校的品德与公民教育（CCE）、德育在于行动（VIA）、学生会或 CCA 活动，分两点来谈。',
       sampleAnswer:
-        '虽然中学生课业确实繁重，但我认为培养社会责任感并不一定要占用大量复习时间。首先，学校可以通过“德育在于行动”（VIA）计划，组织全班同学深入社区租赁组屋或小贩中心开展体验式服务；其次，学生会可以利用社交媒体制作生动有趣的短视频挑战，让同学们在潜移默化中把良好的品德内化为日常习惯。',
+        '虽然中学生课业确实繁忙，但我认为培养责任感并不需要占用大量复习时间。首先，学校可以把相关主题融入“德育在于行动（VIA）”或班级微挑战中，让同学在实践中体会意义；其次，同侪榜样比说教更有效，几个好友互相带动、在社媒分享正面打卡，往往能潜移默化地形成良好的校园风气。',
     };
   }
 
   return {
-    tierLabelZh: '第三轮追问 · 国家政策与多元社会思辨',
-    tierLabelEn: 'Round 3 · National Policy & Critical Societal Thinking',
+    tierLabelZh: '第三轮延伸提问 · 社会协同与长远思考',
+    tierLabelEn: 'Round 3 · Community Synergy & Long-Term Perspective',
     question:
-      '“如果展望未来十年，要让这种优雅、互助的风气在新加坡社会蔚然成风，你认为单靠严格的法律法规够不够？政府、家庭和民众之间应该如何配合？”',
-    intent: '高阶思辨题（冲刺 Band 1 特优关键题）：考察“法制 vs 德治”的辩证思维与宏观视野。',
-    tip: '先辩证表态（“法律能收立竿见影之效，但长远仍需道德内化”），再用“多管齐下”总结升华。',
+      '“如果放眼长远，要让这种良好的风气真正成为社区的日常习惯，单靠法律规定或政府宣导够不够？个人、家庭与社会之间应该如何互相配合？”',
+    intent: '高阶思辨练习：探讨“外在制度规范”与“内在同理心自觉”的关系，练习使用总-分-总收尾升华。',
+    tip: '建议先辩证肯定规则与宣导的作用，再指出长远需要家校社“双管齐下”或“三方配合”。',
     sampleAnswer:
-      '我认为单靠严格的法律法规是不够的。不可否认的是，严明的条规与罚款能起到立竿见影的震慑作用，规范少数缺乏自律者的行为；然而，法令只能管住外在行为，却无法强迫人心产生温度。因此，唯有政府完善制度、学校深化品格教育、家长以身作则言传身教，三方双管齐下、相辅相成，才能让优雅与互助真正成为新加坡人的文化基因。',
+      '我认为单靠规定或宣导是不够的。不可否认的是，明确的规则能起到提示和规范底线的作用，保障大多数人的权益；然而，条规只能约束外在行为，无法替代发自内心的同理心。因此，唯有政府与社区完善便利设施、学校强化品格熏陶、父母在家庭餐桌上以身作则，三方相辅相成，才能让这种习惯真正水到渠成。',
   };
 }
 
@@ -1115,4 +1146,219 @@ export function getDifficultyScaffolding(
   };
 }
 
+// ============================================================================
+// ENHANCEMENT 6: Student Progress Analytics & Recurring Error Tracking
+// ============================================================================
+export interface DimensionMasteryItem {
+  key: 'content' | 'expression' | 'vocabulary' | 'pronunciation';
+  labelEn: string;
+  labelZh: string;
+  avgScore: number;
+  maxScore: number;
+  percentage: number;
+}
 
+export interface ScoreTrajectoryPoint {
+  id: string;
+  label: string;
+  topicId: string;
+  topicTitle: string;
+  totalScore: number;
+  practiceMode: PracticeMode;
+  isRetest: boolean;
+  dateLabel: string;
+}
+
+export interface StudentAnalyticsSummary {
+  totalSessions: number;
+  averageScore: number;
+  bestScore: number;
+  latestScore: number;
+  scoreDeltaLastVsPrev: number | null;
+  uniqueTopicsPracticed: number;
+  totalTopicCount: number;
+  practicedTopicScores: Record<string, number>;
+  guidedCount: number;
+  examSimCount: number;
+  dimensionMastery: DimensionMasteryItem[];
+  weakestDimension: DimensionMasteryItem | null;
+  trajectory: ScoreTrajectoryPoint[];
+  recurringPronunciationTraps: Array<{
+    word: string;
+    pinyin: string;
+    occurrences: number;
+  }>;
+  recurringLogicGaps: {
+    missingPersonalExampleCount: number;
+    missingMultiAngleCount: number;
+    lowConnectivesCount: number;
+  };
+}
+
+export function computeStudentAnalytics(
+  history: EvaluationResult[],
+  savedPronunciations: PronunciationIssue[] = [],
+  totalTopicCount = 40
+): StudentAnalyticsSummary {
+  const totalSessions = history.length;
+  const practicedTopicScores: Record<string, number> = {};
+  const pronCountMap = new Map<string, { word: string; pinyin: string; occurrences: number }>();
+
+  let guidedCount = 0;
+  let examSimCount = 0;
+  let contentSum = 0;
+  let expressionSum = 0;
+  let vocabularySum = 0;
+  let pronunciationSum = 0;
+  let missingPersonalExampleCount = 0;
+  let missingMultiAngleCount = 0;
+  let lowConnectivesCount = 0;
+
+  for (const item of history) {
+    const prevBest = practicedTopicScores[item.topicId] ?? 0;
+    if (item.totalScore > prevBest) {
+      practicedTopicScores[item.topicId] = item.totalScore;
+    }
+
+    if (item.practiceMode === 'exam_sim') examSimCount++;
+    else guidedCount++;
+
+    contentSum += item.rubric?.content?.score ?? 0;
+    expressionSum += item.rubric?.expression?.score ?? 0;
+    vocabularySum += item.rubric?.vocabulary?.score ?? 0;
+    pronunciationSum += item.rubric?.pronunciation?.score ?? 0;
+
+    for (const issue of item.pronunciationIssues || []) {
+      const existing = pronCountMap.get(issue.word);
+      if (existing) {
+        existing.occurrences += 1;
+      } else {
+        pronCountMap.set(issue.word, {
+          word: issue.word,
+          pinyin: issue.pinyin,
+          occurrences: 1,
+        });
+      }
+    }
+
+    const fullText = `${item.initialTranscript || ''}\n${item.followUpTranscript || ''}`;
+    if (fullText.trim()) {
+      const textAnalysis = analyzeOralTranscript(fullText);
+      if (!textAnalysis.hasPersonalExample) missingPersonalExampleCount++;
+      if (!textAnalysis.hasMultiAngle) missingMultiAngleCount++;
+      if (textAnalysis.connectorsFound.length < 2) lowConnectivesCount++;
+    }
+  }
+
+  for (const saved of savedPronunciations) {
+    if (!pronCountMap.has(saved.word)) {
+      pronCountMap.set(saved.word, {
+        word: saved.word,
+        pinyin: saved.pinyin,
+        occurrences: 1,
+      });
+    }
+  }
+
+  const averageScore =
+    totalSessions > 0
+      ? Math.round((history.reduce((sum, h) => sum + h.totalScore, 0) / totalSessions) * 10) / 10
+      : 0;
+  const bestScore =
+    totalSessions > 0 ? Math.max(...history.map((h) => h.totalScore)) : 0;
+  const latestScore = totalSessions > 0 ? history[0].totalScore : 0;
+  const scoreDeltaLastVsPrev =
+    totalSessions >= 2 ? history[0].totalScore - history[1].totalScore : null;
+
+  const round1 = (val: number) => Math.round(val * 10) / 10;
+
+  const dimensionMastery: DimensionMasteryItem[] =
+    totalSessions > 0
+      ? [
+          {
+            key: 'content',
+            labelEn: 'Content & Ideas',
+            labelZh: '思想内容',
+            avgScore: round1(contentSum / totalSessions),
+            maxScore: 15,
+            percentage: Math.round((contentSum / totalSessions / 15) * 100),
+          },
+          {
+            key: 'expression',
+            labelEn: 'Structure & Logic',
+            labelZh: '表达与结构',
+            avgScore: round1(expressionSum / totalSessions),
+            maxScore: 15,
+            percentage: Math.round((expressionSum / totalSessions / 15) * 100),
+          },
+          {
+            key: 'vocabulary',
+            labelEn: 'Vocabulary & Corpus',
+            labelZh: '词汇与语料',
+            avgScore: round1(vocabularySum / totalSessions),
+            maxScore: 10,
+            percentage: Math.round((vocabularySum / totalSessions / 10) * 100),
+          },
+          {
+            key: 'pronunciation',
+            labelEn: 'Pronunciation & Tone',
+            labelZh: '语音与发音',
+            avgScore: round1(pronunciationSum / totalSessions),
+            maxScore: 10,
+            percentage: Math.round((pronunciationSum / totalSessions / 10) * 100),
+          },
+        ]
+      : [
+          { key: 'content', labelEn: 'Content & Ideas', labelZh: '思想内容', avgScore: 0, maxScore: 15, percentage: 0 },
+          { key: 'expression', labelEn: 'Structure & Logic', labelZh: '表达与结构', avgScore: 0, maxScore: 15, percentage: 0 },
+          { key: 'vocabulary', labelEn: 'Vocabulary & Corpus', labelZh: '词汇与语料', avgScore: 0, maxScore: 10, percentage: 0 },
+          { key: 'pronunciation', labelEn: 'Pronunciation & Tone', labelZh: '语音与发音', avgScore: 0, maxScore: 10, percentage: 0 },
+        ];
+
+  const weakestDimension =
+    totalSessions > 0
+      ? [...dimensionMastery].sort((a, b) => a.percentage - b.percentage)[0]
+      : null;
+
+  // Chronological trajectory (oldest -> newest, capped at last 12 sessions)
+  const chronological = [...history].slice(0, 12).reverse();
+  const trajectory: ScoreTrajectoryPoint[] = chronological.map((item, idx) => ({
+    id: item.id || `s-${idx}`,
+    label: `#${idx + 1}`,
+    topicId: item.topicId,
+    topicTitle: item.topicTitle,
+    totalScore: item.totalScore,
+    practiceMode: item.practiceMode || 'guided',
+    isRetest: Boolean(item.isRetest),
+    dateLabel: new Date(item.createdAt).toLocaleDateString('en-SG', {
+      month: 'short',
+      day: 'numeric',
+    }),
+  }));
+
+  const recurringPronunciationTraps = Array.from(pronCountMap.values())
+    .sort((a, b) => b.occurrences - a.occurrences)
+    .slice(0, 6);
+
+  return {
+    totalSessions,
+    averageScore,
+    bestScore,
+    latestScore,
+    scoreDeltaLastVsPrev,
+    uniqueTopicsPracticed: Object.keys(practicedTopicScores).length,
+    totalTopicCount,
+    practicedTopicScores,
+    guidedCount,
+    examSimCount,
+    dimensionMastery,
+    weakestDimension,
+    trajectory,
+    recurringPronunciationTraps,
+    recurringLogicGaps: {
+      missingPersonalExampleCount,
+      missingMultiAngleCount,
+      lowConnectivesCount,
+    },
+  };
+}

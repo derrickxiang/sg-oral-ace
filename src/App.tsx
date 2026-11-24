@@ -8,6 +8,7 @@ import {
   OridScratchpadNotes,
   FollowUpExchange,
   DifficultyLevel,
+  PracticeMode,
 } from './types/oral';
 import { Header } from './components/Header';
 import { VideoPlayerSimulator } from './components/VideoPlayerSimulator';
@@ -25,7 +26,11 @@ import { ReadingAloudAndPrepDeck } from './components/ReadingAloudAndPrepDeck';
 import { PronunciationPolicyQuizCard } from './components/PronunciationPolicyQuizCard';
 import { ReportCardExportModal } from './components/ReportCardExportModal';
 import { ParentConsentBannerModal } from './components/ParentConsentBannerModal';
-import { getDifficultyScaffolding } from './utils/seabRubric';
+import { FeedbackReportModal } from './components/FeedbackReportModal';
+import {
+  getDifficultyScaffolding,
+  computeStudentAnalytics,
+} from './utils/seabRubric';
 import {
   TrialEditionModal,
   EmailRegisterPayload,
@@ -56,17 +61,16 @@ import {
 import {
   RotateCcw,
   ArrowRight,
-  ChevronRight,
-  Lock,
   Zap,
-  LayoutGrid,
-  CreditCard,
   Volume2,
   Landmark,
   Users,
   BookOpen,
   ShieldCheck,
   FileText,
+  Clock,
+  Eye,
+  EyeOff,
 } from 'lucide-react';
 
 const SINGAPORE_LOCAL_CULTURE_LEXICON = [
@@ -195,11 +199,25 @@ export default function App() {
   const [followUpExchanges, setFollowUpExchanges] = useState<FollowUpExchange[]>([]);
   const [showReportCardExportModal, setShowReportCardExportModal] = useState<boolean>(false);
   const [difficultyLevel, setDifficultyLevel] = useState<DifficultyLevel>('basic');
+  const [practiceMode, setPracticeMode] = useState<PracticeMode>('guided');
+  const [prepSecondsUsed, setPrepSecondsUsed] = useState<number>(0);
+  const [showExamHints, setShowExamHints] = useState<boolean>(false);
+  const [step2ElapsedSeconds, setStep2ElapsedSeconds] = useState<number>(0);
 
   // Modals state
   const [showRetestModal, setShowRetestModal] = useState<boolean>(false);
   const [showAiModal, setShowAiModal] = useState<boolean>(false);
   const [showTrialModal, setShowTrialModal] = useState<boolean>(false);
+  const [showConsentModal, setShowConsentModal] = useState<boolean>(false);
+  const [showFeedbackModal, setShowFeedbackModal] = useState<boolean>(false);
+  const [feedbackInitialTopic, setFeedbackInitialTopic] = useState<string | undefined>(undefined);
+  const [isConsentSigned, setIsConsentSigned] = useState<boolean>(() => {
+    try {
+      return Boolean(localStorage.getItem('oralace_consent_v1'));
+    } catch {
+      return false;
+    }
+  });
   const [trialModalSection, setTrialModalSection] = useState<'overview' | 'pricing' | 'mobile_install'>('overview');
 
   // Firebase Auth & Cloud/Hybrid Profile State
@@ -279,7 +297,7 @@ export default function App() {
         trialSessionsRemaining: 99,
         weeklyStreak: 3,
         totalSessionsCompleted: history.length,
-        activePlanName: 'Email Registered Account (All 20 Topics)',
+        activePlanName: `Email Registered Account (All ${ORAL_TOPICS.length} Topics)`,
         authMethod: 'email',
       };
       setUserProfile(registeredProfile);
@@ -419,6 +437,18 @@ export default function App() {
   const defaultSampleFollowUpAnswer =
     '回答考官：我认为在现实生活中，提高罚款确实能起到立竿见影的威慑效果，但单靠惩罚无法形成发自内心的自觉习惯。以我们学校为例，食堂并没有设置罚款，而是通过“环保之星”评选让学生体会收拾餐盘的自豪感。因此，我认为应德法兼施，对故意破坏者依法处罚，对广大民众与青少年则以荣誉激励和品德熏陶为主。';
 
+  // Step 2 Exam Response Pacing Timer
+  useEffect(() => {
+    if (sessionStep !== 'record_initial') {
+      setStep2ElapsedSeconds(0);
+      return;
+    }
+    const timer = setInterval(() => {
+      setStep2ElapsedSeconds((prev) => prev + 1);
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [sessionStep, currentTopic.id]);
+
   // Background pre-warm for sample answer when entering Step 2 so sample testing is <30ms
   useEffect(() => {
     if (sessionStep === 'record_initial') {
@@ -540,6 +570,9 @@ export default function App() {
           followUpTranscript: followText,
           audioDurationSeconds: initialDuration || 45,
           fastMode: useFastMode,
+          practiceMode,
+          prepSecondsUsed,
+          readingAloudScore: readingAloudEval?.score,
         }),
       });
 
@@ -550,9 +583,11 @@ export default function App() {
         throw new Error('Evaluation request failed');
       }
 
-      // Enrich evaluationData with Part 1 Reading Aloud score, ORID notes, and Multi-Turn Exchanges
+      // Enrich evaluationData with Part 1 Reading Aloud score, ORID notes, PracticeMode & Multi-Turn Exchanges
       evaluationData = {
         ...evaluationData,
+        practiceMode: evaluationData.practiceMode ?? practiceMode,
+        prepSecondsUsed: evaluationData.prepSecondsUsed ?? prepSecondsUsed,
         readingAloudScore: readingAloudEval?.score ?? evaluationData.rubric.pronunciation.score,
         readingAloudEvaluation: readingAloudEval ?? undefined,
         oridNotes,
@@ -640,6 +675,9 @@ export default function App() {
     setFollowUpQuestion('');
     setFollowUpTranscript('');
     setCurrentEvaluation(null);
+    setPrepSecondsUsed(0);
+    setShowExamHints(false);
+    setStep2ElapsedSeconds(0);
   };
 
   const similarTopic = ORAL_TOPICS.find((t) => t.id === currentTopic.similarTopicId);
@@ -653,6 +691,12 @@ export default function App() {
     difficultyLevel
   );
 
+  const studentAnalytics = computeStudentAnalytics(
+    history,
+    savedPronunciations,
+    ORAL_TOPICS.length
+  );
+
   return (
     <div className="min-h-screen w-full overflow-x-hidden bg-[#F6F9F8] text-slate-900 flex flex-col font-sans">
       {/* Clean 3-Zone Top Bar (Singapore Academic Deep Teal) */}
@@ -661,15 +705,23 @@ export default function App() {
         setActiveTab={setActiveTab}
         weeklyStreak={weeklyStreak}
         totalPractices={history.length}
+        totalTopicsCount={ORAL_TOPICS.length}
         onOpenAiInfo={() => setShowAiModal(true)}
         isTrialMode={!isRegisteredOrUnlockedAll}
         trialSessionsRemaining={trialSessionsRemaining}
         userDisplayName={userProfile?.displayName || currentUser?.displayName}
         onOpenTrialModal={openTrialModalAt}
+        onOpenConsentModal={() => setShowConsentModal(true)}
+        isConsentSigned={isConsentSigned}
       />
 
-      {/* SG PDPA & 13-17 Parent/Guardian Consent Banner & Modal (derrickxiang/oralace) */}
-      <ParentConsentBannerModal />
+      {/* SG PDPA & 13-17 Parent/Guardian Consent Banner & Modal */}
+      <ParentConsentBannerModal
+        isOpen={showConsentModal}
+        onOpen={() => setShowConsentModal(true)}
+        onClose={() => setShowConsentModal(false)}
+        onConsentChange={(rec) => setIsConsentSigned(Boolean(rec))}
+      />
 
       {/* Offline Connectivity Toast (PWA Compliance) */}
       {!isOnline && (
@@ -684,7 +736,7 @@ export default function App() {
         {/* TAB 1: Oral Practice Studio */}
         {activeTab === 'practice' && (
           <div className="space-y-5 min-w-0">
-            {/* Professional SEAB O-Level Oral Topic Curriculum Selector Deck */}
+            {/* OralAce 40-Topic Curriculum Selector & Practice Mode Switcher */}
             <TopicSelectorDeck
               topics={ORAL_TOPICS}
               currentTopicIndex={currentTopicIndex}
@@ -702,6 +754,12 @@ export default function App() {
               isRegisteredOrUnlockedAll={isRegisteredOrUnlockedAll}
               onOpenEmailRegister={() => openTrialModalAt('overview')}
               sessionStep={sessionStep}
+              practiceMode={practiceMode}
+              onPracticeModeChange={(mode) => {
+                setPracticeMode(mode);
+                setShowExamHints(false);
+              }}
+              practicedTopicScores={studentAnalytics.practicedTopicScores}
             />
 
             {/* Step 1: Balanced Two-Zone Studio Split */}
@@ -868,7 +926,7 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* Full-Width Bottom Deck: Enhancement 1 (Reading Aloud 10m) & Enhancement 2 (10m Prep Timer + ORID Scratchpad) */}
+                {/* Full-Width Bottom Deck: Reading Aloud & 10m Prep Timer + ORID Scratchpad */}
                 <div className="lg:col-span-12">
                   <ReadingAloudAndPrepDeck
                     topicId={currentTopic.id}
@@ -877,6 +935,8 @@ export default function App() {
                     onReadingEvaluated={(evalRes) => setReadingAloudEval(evalRes)}
                     oridNotes={oridNotes}
                     onOridNotesChange={setOridNotes}
+                    practiceMode={practiceMode}
+                    onPrepElapsedChange={setPrepSecondsUsed}
                   />
                 </div>
               </div>
@@ -886,6 +946,44 @@ export default function App() {
             {sessionStep === 'record_initial' && (
               <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
                 <div className="lg:col-span-8 space-y-4">
+                  {/* Exam Response Pacing Bar & Opt-in Hints Toggle when in Timed Exam Sim */}
+                  {practiceMode === 'exam_sim' && (
+                    <div
+                      data-testid="step2-exam-sim-bar"
+                      className="bg-amber-50/80 border border-amber-200 rounded-2xl px-4 py-3 flex flex-wrap items-center justify-between gap-3 text-xs"
+                    >
+                      <div className="flex items-center gap-2 text-amber-950 font-semibold">
+                        <Clock className="w-4 h-4 text-amber-700 shrink-0" />
+                        <span>{t('Timed Exam Sim · Response Timer:', '限时考场模拟 · 作答计时：')}</span>
+                        <span className="font-mono font-bold tabular-nums text-sm">
+                          {Math.floor(step2ElapsedSeconds / 60)
+                            .toString()
+                            .padStart(2, '0')}
+                          :
+                          {(step2ElapsedSeconds % 60).toString().padStart(2, '0')}
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        data-testid="btn-toggle-exam-hints"
+                        onClick={() => setShowExamHints((prev) => !prev)}
+                        className="inline-flex items-center gap-1.5 text-xs font-semibold text-amber-900 hover:text-amber-950 underline cursor-pointer"
+                      >
+                        {showExamHints ? (
+                          <>
+                            <EyeOff className="w-3.5 h-3.5" />
+                            <span>{t('Hide Reference Hints', '隐藏句型与词汇提示')}</span>
+                          </>
+                        ) : (
+                          <>
+                            <Eye className="w-3.5 h-3.5" />
+                            <span>{t('Show Reference Hints', '查看句型与词汇提示')}</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  )}
+
                   {/* Show ORID Scratchpad Cue Card above VoiceRecorder if notes exist */}
                   {(oridNotes.observation.trim() ||
                     oridNotes.reflection.trim() ||
@@ -929,53 +1027,59 @@ export default function App() {
                     </div>
                   )}
 
-                  {/* Difficulty Sentence Starters Card on Step 2 (ported from derrickxiang/oralace app.html) */}
-                  <div
-                    data-testid="step2-difficulty-frames-card"
-                    className="bg-white border border-teal-900/15 rounded-2xl p-4 text-xs space-y-2 shadow-2xs"
-                  >
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <span className="font-bold text-teal-950">
-                        {t(currentDifficultyScaffolding.badgeEn, currentDifficultyScaffolding.badgeZh)}
-                      </span>
-                      <div className="inline-flex items-center gap-1 bg-slate-100 p-0.5 rounded-lg border border-slate-200">
-                        <button
-                          type="button"
-                          onClick={() => setDifficultyLevel('basic')}
-                          className={`px-2 py-0.5 rounded-md text-[11px] font-bold transition-colors cursor-pointer ${
-                            difficultyLevel === 'basic'
-                              ? 'bg-[#0B3B3C] text-white'
-                              : 'text-slate-600 hover:text-slate-900'
-                          }`}
-                        >
-                          {t('Basic', '基础')}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setDifficultyLevel('advanced')}
-                          className={`px-2 py-0.5 rounded-md text-[11px] font-bold transition-colors cursor-pointer ${
-                            difficultyLevel === 'advanced'
-                              ? 'bg-[#0B3B3C] text-white'
-                              : 'text-slate-600 hover:text-slate-900'
-                          }`}
-                        >
-                          {t('Advanced', '提高')}
-                        </button>
+                  {/* Difficulty Sentence Starters Card on Step 2 (shown in Guided Studio or opt-in Exam Sim) */}
+                  {(practiceMode === 'guided' || showExamHints) && (
+                    <div
+                      data-testid="step2-difficulty-frames-card"
+                      className="bg-white border border-teal-900/15 rounded-2xl p-4 text-xs space-y-2 shadow-2xs"
+                    >
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <span className="font-bold text-teal-950">
+                          {t(currentDifficultyScaffolding.badgeEn, currentDifficultyScaffolding.badgeZh)}
+                        </span>
+                        <div className="inline-flex items-center gap-1 bg-slate-100 p-0.5 rounded-lg border border-slate-200">
+                          <button
+                            type="button"
+                            onClick={() => setDifficultyLevel('basic')}
+                            className={`px-2 py-0.5 rounded-md text-[11px] font-bold transition-colors cursor-pointer ${
+                              difficultyLevel === 'basic'
+                                ? 'bg-[#0B3B3C] text-white'
+                                : 'text-slate-600 hover:text-slate-900'
+                            }`}
+                          >
+                            {t('Basic', '基础')}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setDifficultyLevel('advanced')}
+                            className={`px-2 py-0.5 rounded-md text-[11px] font-bold transition-colors cursor-pointer ${
+                              difficultyLevel === 'advanced'
+                                ? 'bg-[#0B3B3C] text-white'
+                                : 'text-slate-600 hover:text-slate-900'
+                            }`}
+                          >
+                            {t('Advanced', '提高')}
+                          </button>
+                        </div>
                       </div>
+                      <ul className="space-y-1 text-slate-700">
+                        {currentDifficultyScaffolding.sentenceFrames.map((frame, idx) => (
+                          <li key={idx} className="leading-relaxed">
+                            {frame}
+                          </li>
+                        ))}
+                      </ul>
                     </div>
-                    <ul className="space-y-1 text-slate-700">
-                      {currentDifficultyScaffolding.sentenceFrames.map((frame, idx) => (
-                        <li key={idx} className="leading-relaxed">
-                          {frame}
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
+                  )}
 
                   <VoiceRecorder
                     onTranscriptReady={(tText, aUrl, dur) => handleInitialAnswerSubmit(tText, aUrl, dur)}
                     isLoading={isGeneratingFollowUp}
-                    sampleAnswer={defaultSampleInitialAnswer}
+                    sampleAnswer={
+                      practiceMode === 'guided' || showExamHints
+                        ? defaultSampleInitialAnswer
+                        : undefined
+                    }
                     placeholderText={t(
                       'Click the microphone to speak in Mandarin (describe the video phenomenon, your views, and real-life Singapore examples)...',
                       '请点击麦克风口述您的见解，清晰阐述短片现象、您的看法及新加坡生活实例……'
@@ -1012,22 +1116,31 @@ export default function App() {
                     </p>
                   </div>
 
-                  <div className="pt-4 border-t border-slate-100">
-                    <h4 className="text-xs font-bold text-teal-950 mb-3">
-                      {t('Recommended Vocabulary & Idioms', '本题高分语料参考')}
-                    </h4>
-                    <div className="space-y-2.5">
-                      {currentTopic.suggestedVocabulary.map((vocab, i) => (
-                        <div key={i} className="pb-2.5 border-b border-slate-100 last:border-b-0 last:pb-0">
-                          <div className="flex items-baseline justify-between gap-2">
-                            <strong className="text-xs font-semibold text-teal-950">{vocab.word}</strong>
-                            <span className="text-[11px] font-mono text-slate-500">{vocab.pinyin}</span>
+                  {practiceMode === 'guided' || showExamHints ? (
+                    <div className="pt-4 border-t border-slate-100">
+                      <h4 className="text-xs font-bold text-teal-950 mb-3">
+                        {t('Recommended Vocabulary & Idioms', '本题高分语料参考')}
+                      </h4>
+                      <div className="space-y-2.5">
+                        {currentTopic.suggestedVocabulary.map((vocab, i) => (
+                          <div key={i} className="pb-2.5 border-b border-slate-100 last:border-b-0 last:pb-0">
+                            <div className="flex items-baseline justify-between gap-2">
+                              <strong className="text-xs font-semibold text-teal-950">{vocab.word}</strong>
+                              <span className="text-[11px] font-mono text-slate-500">{vocab.pinyin}</span>
+                            </div>
+                            <p className="text-xs text-slate-500 mt-0.5">{vocab.meaning}</p>
                           </div>
-                          <p className="text-xs text-slate-500 mt-0.5">{vocab.meaning}</p>
-                        </div>
-                      ))}
+                        ))}
+                      </div>
                     </div>
-                  </div>
+                  ) : (
+                    <div className="pt-4 border-t border-slate-100 text-xs text-slate-500 leading-relaxed">
+                      {t(
+                        'Timed Exam Sim active: vocabulary hints are hidden so you can test authentic spoken recall. Complete your submission to view tailored suggestions.',
+                        '当前为限时考场模拟模式：高分参考词汇已隐藏，以锻炼真实临场语感；提交作答后即可查看完整改进建议。'
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
             )}
@@ -1037,6 +1150,9 @@ export default function App() {
               <div className="space-y-6">
                 <FollowUpSection
                   topicId={currentTopic.id}
+                  topicTitle={currentTopicDisplay.title}
+                  initialTranscript={initialTranscript}
+                  practiceMode={practiceMode}
                   followUpQuestion={followUpQuestion}
                   rationaleForQuestion={followUpRationale}
                   examinerToneAdvice={examinerToneAdvice}
@@ -1107,7 +1223,13 @@ export default function App() {
                 </div>
 
                 <RubricScoreCard evaluation={currentEvaluation} />
-                <TripleFeedbackCard tripleFeedback={currentEvaluation.tripleFeedback} />
+                <TripleFeedbackCard
+                  tripleFeedback={currentEvaluation.tripleFeedback}
+                  onOpenFeedbackReport={() => {
+                    setFeedbackInitialTopic(currentTopicDisplay.title);
+                    setShowFeedbackModal(true);
+                  }}
+                />
                 <PronunciationCard
                   issues={currentEvaluation.pronunciationIssues}
                   onSaveToNotebook={handleSavePronunciation}
@@ -1146,13 +1268,30 @@ export default function App() {
           </div>
         )}
 
-        {/* TAB 2: Weekly Progress Tracker */}
+        {/* TAB 2: Weekly Progress Tracker & Student Analytics */}
         {activeTab === 'progress' && (
           <WeeklyTracker
             history={history}
             savedPronunciations={savedPronunciations}
             savedCorpusWords={savedCorpusWords}
+            totalTopicCount={ORAL_TOPICS.length}
             onRemovePronunciation={handleRemovePronunciation}
+            onJumpToPractice={() => setActiveTab('practice')}
+            onJumpToWeakestTopic={() => {
+              const nextIdx = ORAL_TOPICS.findIndex(
+                (tItem, idx) =>
+                  !isLockedTopic(idx) &&
+                  studentAnalytics.practicedTopicScores[tItem.id] === undefined
+              );
+              if (nextIdx !== -1) {
+                setCurrentTopicIndex(nextIdx);
+                handleRestartTopic();
+              } else {
+                setCurrentTopicIndex(0);
+                handleRestartTopic();
+              }
+              setActiveTab('practice');
+            }}
             onSelectHistoryItem={(item) => {
               setCurrentEvaluation(item);
               const foundTopic = ORAL_TOPICS.find((t) => t.id === item.topicId);
@@ -1309,6 +1448,61 @@ export default function App() {
         {activeTab === 'mobile_export' && <MobileExporterView />}
       </main>
 
+      {/* Global Academic & Privacy Footer */}
+      <footer className="w-full border-t border-slate-200 bg-white py-6 mt-8 text-xs text-slate-500">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col md:flex-row items-center justify-between gap-4">
+          <div className="space-y-1 text-center md:text-left">
+            <div className="font-bold text-slate-900 flex items-center justify-center md:justify-start gap-2">
+              <span className="font-extrabold tracking-tight text-[#072B2E]">OralAce</span>
+              <span className="text-slate-300">|</span>
+              <span>{t('Singapore Chinese Oral Practice Studio', '新加坡华文口语日常陪练室')}</span>
+            </div>
+            <p className="text-[11px] text-slate-400 max-w-xl">
+              {t(
+                'AI generated prompts, rubrics, and feedback are designed for regular practice reference and self-learning; not affiliated with official examination boards.',
+                '所生成之短片提示、追问与参考评分仅供日常口语练习与自我提升，不代表官方考评机构。'
+              )}
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center justify-center gap-4 text-xs font-semibold">
+            <button
+              type="button"
+              data-testid="header-consent-chip-btn"
+              onClick={() => setShowConsentModal(true)}
+              className="text-slate-600 hover:text-teal-900 transition-colors cursor-pointer whitespace-nowrap"
+            >
+              {isConsentSigned
+                ? t('PDPA Consent Signed ✓', 'PDPA 家长同意书已确认 ✓')
+                : t('SG PDPA & Minor Consent', 'SG PDPA 隐私与家长同意')}
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowAiModal(true)}
+              className="text-slate-600 hover:text-teal-900 transition-colors cursor-pointer whitespace-nowrap"
+            >
+              {t('AI Engineering Architecture', 'AI 架构与技术原理')}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setFeedbackInitialTopic(undefined);
+                setShowFeedbackModal(true);
+              }}
+              className="text-slate-600 hover:text-teal-900 transition-colors cursor-pointer whitespace-nowrap"
+            >
+              {t('Feedback & Issue Report', '反馈／举报问题')}
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('mobile_export')}
+              className="text-slate-600 hover:text-teal-900 transition-colors cursor-pointer whitespace-nowrap"
+            >
+              {t('Mobile App Guide', '手机应用安装')}
+            </button>
+          </div>
+        </div>
+      </footer>
+
       {/* Retest & Compare Modal */}
       {showRetestModal && currentEvaluation && (
         <RetestCompareModal
@@ -1355,6 +1549,23 @@ export default function App() {
         onSignOut={handleSignOut}
         onSelectSubscriptionPlan={handleSelectSubscriptionPlan}
         initialSection={trialModalSection}
+        onOpenFeedbackModal={() => {
+          setFeedbackInitialTopic(undefined);
+          setShowFeedbackModal(true);
+        }}
+      />
+
+      {/* Student Feedback & Content Safety / Issue Report Modal */}
+      <FeedbackReportModal
+        isOpen={showFeedbackModal}
+        onClose={() => setShowFeedbackModal(false)}
+        currentUser={currentUser}
+        userProfile={userProfile}
+        initialTopicTitle={feedbackInitialTopic}
+        onOpenAuthModal={() => {
+          setShowFeedbackModal(false);
+          openTrialModalAt('overview');
+        }}
       />
     </div>
   );

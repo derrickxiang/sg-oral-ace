@@ -1,6 +1,7 @@
-import { OralTopic } from '../types/oral';
+import type { OralTopic } from '../types/oral.ts';
+import { EXTENDED_ORAL_TOPICS } from './topicsExtended.ts';
 
-export const ORAL_TOPICS: OralTopic[] = [
+const CORE_ORAL_TOPICS: OralTopic[] = [
   {
     id: 'topic-hawker-tray',
     title: '小贩中心主动归还托盘与清洁桌面',
@@ -1577,4 +1578,7 @@ export const ORAL_TOPICS: OralTopic[] = [
   },
 ];
 
-
+export const ORAL_TOPICS: OralTopic[] = [
+  ...CORE_ORAL_TOPICS,
+  ...EXTENDED_ORAL_TOPICS,
+];
